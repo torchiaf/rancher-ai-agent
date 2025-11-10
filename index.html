@@ -13,14 +13,23 @@
     </head>
     <body>
         <h1>Rancher AI Chat</h1>
+
+        <!-- Test Messages -->
+        <h3 style="margin-top:8px;">Messages</h3>
         <ul id='messages'></ul>
         <form action="" onsubmit="sendMessage(event)">
-            <input type="text" id="messageText" autocomplete="off"/>
-            <button>Send</button>
+            <input type="text" id="messageText" autocomplete="off" style="margin-top:8px;"/>
+            <button style="margin-top:8px;">Send</button>
         </form>
+
+        <!-- Test Autocomplete -->
+       <h3 style="margin-top:32px;">Autocomplete</h3>
+        <div id="autocompletePanel" style="margin-top:8px; width:100%; max-width:720px; background:#fff; border:1px solid #ddd; padding:8px; overflow:auto; display: block; height: 100px; overflow: auto;">
+            <ul id="autocompleteMessages" style="list-style:none; margin:8px 0 0 0; padding:0;"></ul>
+        </div>
+        <input type="text" id="autocompleteText" autocomplete="off" style="margin-top:8px;"/>
         <script>
-            // Establish a WebSocket connection
-            const ws = new WebSocket("wss://{{ url }}/api/v1/namespaces/cattle-ai-agent-system/services/http:rancher-ai-agent:80/proxy/agent/ws");
+            const ws = new WebSocket("wss://{{ url }}/api/v1/namespaces/cattle-ai-agent-system/services/http:rancher-ai-agent:80/proxy/agent/ws/messages");
             ws.onopen = function(event) {
                 console.log("WebSocket connection established.");
                 const li = document.createElement('li');
@@ -31,7 +40,7 @@
             let currentMessageLi;
 
             ws.onmessage = function(event) {
-                console.log("msg received."+ event.data);
+                console.log("[messages] msg received."+ event.data);
                 const messages = document.getElementById('messages');
                 const data = event.data;
 
@@ -69,11 +78,76 @@
                 console.error("WebSocket error: ", error);
             };
 
+            // Establish a WebSocket connection for autocomplete
+            const autoWs = new WebSocket("wss://{{ url }}/api/v1/namespaces/cattle-ai-agent-system/services/http:rancher-ai-agent:80/proxy/agent/ws/autocomplete");
+
+            let currentAutoLi;
+            autoWs.onopen = function() {
+                console.log('autocomplete socket open');
+                const li = document.createElement('li');
+                li.textContent = 'Autocomplete socket connected!';
+                document.getElementById('autocompleteMessages').appendChild(li);
+            };
+
+            autoWs.onmessage = function(event) {
+                console.log("[autocomplete] msg received."+ event.data);
+
+                const autoPanel = document.getElementById('autocompleteMessages');
+                const data = event.data;
+                if (data.startsWith('<error>')) {
+                    alert(data.substring(7));
+                    return;
+                }
+                if (data === '<message>') {
+                    currentAutoLi = document.createElement('li');
+                    currentAutoLi.style.fontStyle = 'italic';
+                    autoPanel.appendChild(currentAutoLi);
+                } else if (data === '</message>') {
+                    currentAutoLi = null;
+                } else if (currentAutoLi) {
+                    currentAutoLi.textContent += data;
+                } else {
+                    const m = document.createElement('li');
+                    m.textContent = data;
+                    autoPanel.appendChild(m);
+                }
+                autoPanel.parentElement.scrollTop = autoPanel.parentElement.scrollHeight;
+            };
+
+            autoWs.onclose = function() {
+                const li = document.createElement('li');
+                li.textContent = 'Autocomplete socket closed';
+                document.getElementById('autocompleteMessages').appendChild(li);
+            };
+
+            autoWs.onerror = function(e) { console.error('autocomplete socket error', e); };
+
+            // Debounce and send autocomplete requests when typing
+            let autoTimer = null;
+            const AUTO_DEBOUNCE_MS = 500;
+            const autoInput = document.getElementById('autocompleteText');
+            if (autoInput) {
+                autoInput.addEventListener('input', function(e){
+                    const autoPanel = document.getElementById('autocompleteMessages');
+                    autoPanel.textContent = ''; // Clear previous suggestions
+
+                    const val = e.target.value;
+                    clearTimeout(autoTimer);
+                    autoTimer = setTimeout(function(){
+                        if (autoWs.readyState === WebSocket.OPEN) {
+                            const payload = { prompt: val, context: [] };
+                            autoWs.send(JSON.stringify(payload));
+                        }
+                    }, AUTO_DEBOUNCE_MS);
+                });
+            }
+
             // Function to send a message
             function sendMessage(event) {
                 const input = document.getElementById("messageText");
                 if (input.value) {
-                    ws.send(input.value);
+                    const payload = { prompt: input.value, context: [] };
+                    ws.send(JSON.stringify(payload));
                     
                     // Add the sent message to our own list
                     const messages = document.getElementById('messages');

@@ -1,7 +1,9 @@
 import logging
+import asyncio
 import os
 import json
 import uuid
+from enum import Enum
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from starlette.websockets import WebSocketState
@@ -11,7 +13,7 @@ from mcp.client.streamable_http import streamablehttp_client
 from langgraph.checkpoint.memory import InMemorySaver
 from langchain_ollama import ChatOllama 
 from langchain_mcp_adapters.tools import load_mcp_tools
-from agents import create_k8s_agent, init_rag_rancher
+from agents import create_k8s_agent, init_rag_rancher, create_memory_agent
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command
@@ -25,6 +27,10 @@ from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_ollama import OllamaEmbeddings
 from langfuse.langchain import CallbackHandler
 
+class RequestType(Enum):
+    AUTOCOMPLETE = "autocomplete"
+    MESSAGE = "message"
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 init_config = {}
@@ -34,7 +40,11 @@ async def lifespan(app: FastAPI):
     try:
         LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO').upper()
         logging.getLogger().setLevel(LOG_LEVEL)
+        
+        app.mem_agent = await create_memory_agent("redis://rancher-ai-redis")
+
         init_config["llm"] = get_llm()
+
         logging.info(f"Using model: {init_config['llm']}")
         # if ENABLE_RAG flag is set, initialize the RAG retriever tool
         if os.environ.get("ENABLE_RAG", "false").lower() == "true":
@@ -44,37 +54,50 @@ async def lifespan(app: FastAPI):
                 "retrieve_rancher_docs",
                 "Search and return relevant passages from local Rancher/SUSE documentation. Always use the retrieve_rancher_docs tool when relevant to fetch up-to-date Rancher documentation.",
             )
+
+        """
+        Current session id set by messages websocket and consumed by autocomplete websocket
+        TODO should include userId
+        
+        current_session_id: str | None
+        """
+        app.current_session_id = None
+
+        """
+        Maps session IDs to their active autocomplete tasks.
+        
+        active_autocomplete_tasks: dict[str, asyncio.Task]
+        """
+        app.active_autocomplete_tasks = {}
+
     except ValueError as e:
         logging.critical(e)
         raise e
     yield
+
+    await app.mem_agent.destroy()
     init_config.clear()
 
 app = FastAPI(lifespan=lifespan)
 
-@app.websocket("/agent/ws")
-async def websocket_endpoint(websocket: WebSocket):
+@app.websocket("/agent/ws/messages")
+async def websocket_messages_endpoint(websocket: WebSocket):
     """
-    WebSocket endpoint for the agent.
-    
+    WebSocket endpoint for the conversation messages.
+
     Accepts a WebSocket connection, sets up the agent and
     handles the back-and-forth communication with the client.
     """
     await websocket.accept()
-    logging.debug("ws connection opened")
 
-    cookies = websocket.cookies
-    rancher_url = "https://"+websocket.url.hostname
-    if websocket.url.port:
-        rancher_url += ":"+str(websocket.url.port)
+    session_id = websocket.query_params.get("sessionId", str(uuid.uuid4()))
+    app.current_session_id = session_id
 
-    async with streamablehttp_client(
-        url="http://rancher-mcp-server",
-        headers={
-             "R_token":str(cookies.get("R_SESS")),
-             "R_url":rancher_url
-             }
-    ) as (read, write, _):
+    logging.debug(f"ws/messages connection opened - session_id={session_id}")
+    
+    params = get_ws_connection_params(websocket)
+
+    async with streamablehttp_client(**params) as (read, write, _):
         # This will create one mcp connection for each websocket connection. This is needed because we need to pass the rancher token in the header.
         async with ClientSession(read, write) as session:
             await session.initialize()
@@ -85,7 +108,7 @@ async def websocket_endpoint(websocket: WebSocket):
             if os.environ.get("ENABLE_RAG", "false").lower() == "true":
                 tools = [init_config["retriever_tool"]] + tools
 
-            agent = create_k8s_agent(init_config["llm"], tools, get_system_prompt(), InMemorySaver())
+            agent = create_k8s_agent(init_config["llm"], tools, get_system_prompt(RequestType.MESSAGE), InMemorySaver())
             
             config = {
                 "thread_id": thread_id,
@@ -97,21 +120,26 @@ async def websocket_endpoint(websocket: WebSocket):
             while True:
                 try:
                     request = await websocket.receive_text()
-                    
-                    prompt, context = _parse_websocket_request(request)
+
+                    prompt, context, request_id = _parse_websocket_request(request)
+
                     if context:
                         context_prompt = ". Use the following parameters to populate tool calls when appropriate. \n Only include parameters relevant to the user’s request (e.g., omit namespace for cluster-wide operations). \n Parameters (separated by ;): \n "
                         for key, value in context.items():
                             context_prompt += f"{key}:{value};"
                         prompt += context_prompt
 
-                    await stream_agent_response(
+                    await stream_messages_agent_response(
                         agent=agent,
                         input_data={"messages": [{"role": "user", "content": prompt}]},
                         config=config,
+                        session_id=session_id,
+                        request_id=request_id,
                         websocket=websocket)
                 except WebSocketDisconnect:
                     logging.info(f"Client {websocket.client.host} disconnected.")
+
+                    app.current_session_id = None
                     break
                 except Exception as e:
                     logging.error(f"An error occurred: {e}")
@@ -125,7 +153,115 @@ async def websocket_endpoint(websocket: WebSocket):
             
     logging.debug("ws connection closed")
 
-# This is the UI for testing. This will be replaced by the UI extension
+@app.websocket("/agent/ws/autocomplete")
+async def websocket_autocomplete_endpoint(websocket: WebSocket):
+    """
+    WebSocket endpoint for the autocomplete messages.
+    
+    Accepts a WebSocket connection, sets up the agent and
+    handles the back-and-forth communication with the client.
+    """
+    await websocket.accept()
+
+    session_id = getattr(app, "current_session_id", None) or websocket.query_params.get("sessionId", "default")
+
+    logging.debug(f"ws/autocomplete connection opened - session_id={session_id}")
+
+    params = get_ws_connection_params(websocket)
+
+    async with streamablehttp_client(**params):
+        thread_id = str(uuid.uuid4())
+
+        tools = []
+        
+        # if ENABLE_RAG is true, add the retriever tool to the tools list
+        if os.environ.get("ENABLE_RAG", "false").lower() == "true":
+            tools = [init_config["retriever_tool"]]
+
+        agent = create_k8s_agent(init_config["llm"], tools, get_system_prompt(RequestType.AUTOCOMPLETE), InMemorySaver())
+        
+        config = {
+            "thread_id": thread_id,
+        }
+        if os.environ.get("LANGFUSE_SECRET_KEY") and os.environ.get("LANGFUSE_PUBLIC_KEY") and os.environ.get("LANGFUSE_HOST"):
+            langfuse_handler = CallbackHandler()
+            config["callbacks"] = [langfuse_handler]
+
+        while True:
+            try:
+                request = await websocket.receive_text()
+
+                prompt, context, request_id = _parse_websocket_request(request)
+
+                if context:
+                    context_prompt = ". Use the following parameters to populate tool calls when appropriate. \n Only include parameters relevant to the user’s request (e.g., omit namespace for cluster-wide operations). \n Parameters (separated by ;): \n "
+                    for key, value in context.items():
+                        context_prompt += f"{key}:{value};"
+                    prompt += context_prompt
+
+                # augment prompt with recent agent replies seen on the messages websocket for this client host.
+                last_messages = await app.mem_agent.fetch_messages(
+                    session_id=session_id,
+                    max_count=10,
+                    reverse=True,
+                )
+
+                prompt = f"Use the following recent agent replies as candidates for completion:\n  {'  ----------\n  '.join(last_messages)}  ----------\n\nUser input: {prompt}"
+
+                # For autocomplete, cancel any previous running autocomplete task for this session
+                prev_entry = app.active_autocomplete_tasks.get(session_id)
+                # Normalize prev task and finished_event if stored as dict or bare task
+                prev_task = None
+                prev_finished = None
+                if isinstance(prev_entry, dict):
+                    prev_task = prev_entry.get("task")
+                    prev_finished = prev_entry.get("finished_event")
+                    prev_renew = prev_entry.get("renew")
+                else:
+                    prev_task = prev_entry
+                    prev_renew = None
+
+                if prev_task and not prev_task.done():
+                    prev_task.cancel()
+                if prev_renew and not prev_renew.done():
+                    prev_renew.cancel()
+
+                # If a previous finished_event exists, wait for it so ordering is preserved
+                if prev_finished:
+                    try:
+                        await prev_finished.wait()
+                    except Exception:
+                        pass
+
+                # Create a finished_event for this stream so subsequent requests
+                # can wait until this stream emits its closing tag.
+                finished_event = asyncio.Event()
+
+                # Send the opening tag from the request handler to preserve ordering
+                try:
+                    if websocket.client_state == WebSocketState.CONNECTED:
+                        await websocket.send_text("<message>")
+                except Exception:
+                    pass
+
+                # Start the stream; the stream will NOT send the opening tag itself
+                task = asyncio.create_task(stream_autocomplete_agent_response(
+                    agent=agent,
+                    input_data={"messages": [{"role": "user", "content": prompt}]},
+                    config=config,
+                    websocket=websocket,
+                    finished_event=finished_event,
+                    send_opening_tag=False,
+                ))
+
+                app.active_autocomplete_tasks[session_id] = {"task": task, "renew": None, "finished_event": finished_event}
+            except WebSocketDisconnect:
+                logging.info(f"Client {websocket.client.host} disconnected.")
+                break
+            except Exception as e:
+                logging.error(f"An error occurred on autocomplete request: {e}")
+                pass
+
 @app.get("/agent")
 async def get(request: Request):
     """Serves the main HTML page for the chat client."""
@@ -135,14 +271,16 @@ async def get(request: Request):
 
     return HTMLResponse(modified_html)
 
-async def stream_agent_response(
+async def stream_messages_agent_response(
     agent: CompiledStateGraph,
     input_data: dict[str, list[dict[str, str]]],
     config: dict,
+    session_id: str,
+    request_id: str,
     websocket: WebSocket,
 ) -> None:
     """
-    Streams the agent's response to a WebSocket connection, handling interruptions.
+    Streams the agent's message response to a WebSocket connection, handling interruptions.
     
     Args:
         agent: The compiled LangGraph agent.
@@ -161,14 +299,17 @@ async def stream_agent_response(
         if event == "messages":
             chunk, metadata = data
             if metadata.get("langgraph_node") == "agent" and chunk.content:
-                await websocket.send_text(_extract_text_from_chunk_content(chunk.content))
+                text = _extract_text_from_chunk_content(chunk.content)
+                await websocket.send_text(text)
+                # store recent agent replies
+                await app.mem_agent.store_messages(session_id, request_id, text=text)
 
         if event == "updates":
             if interrupt_value := data.get("__interrupt__"):
                 await websocket.send_text(interrupt_value[0].value)
                 # Receive user response for the human verification
                 user_response = await websocket.receive_text()
-                await stream_agent_response(
+                await stream_messages_agent_response(
                     agent=agent,
                     input_data=Command(resume={"response": user_response}),
                     config=config,
@@ -176,7 +317,78 @@ async def stream_agent_response(
                 
         if event == "custom":
             await websocket.send_text(data)
+            # store recent mcp replies
+            await app.mem_agent.store_messages(session_id, request_id, text=data)
+
+async def stream_autocomplete_agent_response(
+    agent: CompiledStateGraph,
+    input_data: dict[str, list[dict[str, str]]],
+    config: dict,
+    websocket: WebSocket,
+    finished_event: asyncio.Event | None = None,
+    send_opening_tag: bool = True,
+) -> None:
+    """
+    Streams the agent's autocomplete response to a WebSocket connection, handling cancellations.
     
+    Args:
+        agent: The compiled LangGraph agent.
+        input_data: The input data for the agent's run.
+        config: The run configuration.
+        websocket: The WebSocket connection.
+        stream_mode: The types of events to stream from the agent.
+    """
+
+    # Optionally send opening tag; caller may send it to preserve ordering.
+    if send_opening_tag:
+        await websocket.send_text("<message>")
+    try:
+        async for event, data in agent.astream(
+            input_data,
+            config=config,
+            stream_mode=["messages"],
+        ):
+            if event == "messages":
+                chunk, metadata = data
+                if metadata.get("langgraph_node") == "agent" and chunk.content:
+                    text = _extract_text_from_chunk_content(chunk.content)
+                    await websocket.send_text(text)
+
+    except asyncio.CancelledError:
+        try:
+            if websocket.client_state == WebSocketState.CONNECTED:
+                await websocket.send_text("</message>")
+        except Exception:
+            pass
+        raise
+    finally:
+        # Ensure closing tag
+        try:
+            if websocket.client_state == WebSocketState.CONNECTED:
+                await websocket.send_text("</message>")
+        except Exception:
+            pass
+        # Notify waiter that stream finished
+        try:
+            if finished_event:
+                finished_event.set()
+        except Exception:
+            pass
+
+def get_ws_connection_params(websocket: WebSocket) -> dict:
+    cookies = websocket.cookies
+
+    rancher_url = "https://"+websocket.url.hostname
+    if websocket.url.port:
+        rancher_url += ":"+str(websocket.url.port)
+
+    return {
+        "url": "https://"+websocket.url.hostname,
+        "headers": {
+            "R_token": str(cookies.get("R_SESS")),
+            "R_url": rancher_url
+        }
+    }
 
 def get_llm() -> BaseLanguageModel:
     """
@@ -247,7 +459,7 @@ def get_llm_embeddings() -> Embeddings:
 
     raise ValueError("No embedding provider configured. Set OLLAMA_URL, GOOGLE_API_KEY, or OPENAI_API_KEY.")
 
-def get_system_prompt() -> str:
+def get_system_prompt(type: RequestType) -> str:
     """
     Retrieves the system prompt for the AI agent.
 
@@ -259,11 +471,32 @@ def get_system_prompt() -> str:
         str: The system prompt to be used by the AI agent.
     """
 
-    prompt = os.environ.get("SYSTEM_PROMPT")
-    if prompt:
-        return prompt
-    
-    return """You are a helpful and expert AI assistant integrated directly into the Rancher UI. Your primary goal is to assist users in managing their Kubernetes clusters and resources through the Rancher interface. You are a trusted partner, providing clear, confident, and safe guidance.
+    match type:
+        case RequestType.AUTOCOMPLETE:
+            return """You are an expert, context-aware autocomplete engine. Complete the user's unfinished phrase naturally and concisely. Do not add any introductory text, explanations, or formatting. Only output the direct continuation of the user's text.
+
+## CORE DIRECTIVES
+
+### Context Awareness
+* Always consider the user's current context when defined (cluster, project, or resource being viewed).
+* Use the provided previous messages from the conversation to build your completions. First messages are most relevant.
+
+### User perspective
+* The completions will be used by the user to ask YOU some requests in natural language.
+* Remember to keep the user's intent in mind when generating completions.
+    * Good: "Give me the logs for the failing pod-{some-id}" - this is an acceptable completion because it addresses the User's intent.
+    * Bad: "How can I help you?" - this is not an acceptable completion because the User's intent is not being addressed.
+
+### Natural language Mentality
+* The completions should be in natural language, as the user would express it.
+"""
+
+        case RequestType.MESSAGE:
+            prompt = os.environ.get("SYSTEM_PROMPT")
+            if prompt:
+                return prompt
+            
+            return """You are a helpful and expert AI assistant integrated directly into the Rancher UI. Your primary goal is to assist users in managing their Kubernetes clusters and resources through the Rancher interface. You are a trusted partner, providing clear, confident, and safe guidance.
 
 ## CORE DIRECTIVES
 
@@ -341,7 +574,7 @@ def _extract_text_from_chunk_content(chunk_content: any) -> str:
     
     return str(chunk_content) if chunk_content is not None else ""
 
-def _parse_websocket_request(request: str) -> tuple[str, dict]:
+def _parse_websocket_request(request: str) -> tuple[str, dict, str]:
     """
     Parses the incoming websocket request.
 
@@ -358,7 +591,8 @@ def _parse_websocket_request(request: str) -> tuple[str, dict]:
         json_request = json.loads(request)
         prompt = json_request.get("prompt", "")
         context = json_request.get("context", {})
-        
-        return prompt, context
+        request_id = str(uuid.uuid4())
+
+        return prompt, context, request_id
     except json.JSONDecodeError:
-        return request, {}
+        return request, {}, None

@@ -20,6 +20,7 @@ dependencies = [
     "mock>=5.2.0",
     "pytest>=8.4.2",
     "pytest-asyncio>=1.2.0",
+    "redis>=4.6.0",
     "unstructured>=0.18.15",
     "unstructured[md]>=0.18.15",
 ]

@@ -1,0 +1,11 @@
+# dev utils
+setup-env.sh
+dev.sh
+install
+
+# python dev
+my-env
+__pycache__
+uv.lock
+kube.yaml
+=2.0.0

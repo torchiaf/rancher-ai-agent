@@ -19,6 +19,21 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      # Init container: wait for Redis service to be ready before starting the agent
+      initContainers:
+      - name: wait-for-redis
+        image: "redis:7.0-alpine"
+        imagePullPolicy: IfNotPresent
+        command:
+          - sh
+          - -c
+          - |
+            echo "Waiting for rancher-ai-redis to become available..."
+            until redis-cli -h rancher-ai-redis ping > /dev/null 2>&1; do
+              echo "redis not ready yet, sleeping..."
+              sleep 1
+            done
+            echo "redis is available"
       containers:
       - image: "{{ .Values.aiAgent.image.repository }}:{{ .Values.aiAgent.image.tag }}"
         imagePullPolicy: "{{ .Values.aiAgent.image.pullPolicy }}"

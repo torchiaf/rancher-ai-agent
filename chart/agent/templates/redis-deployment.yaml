@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rancher-ai-redis
+  namespace: cattle-ai-agent-system
+spec:
+  replicas: {{ .Values.redis.replicaCount }}
+  selector:
+    matchLabels:
+      app: rancher-ai-redis
+  template:
+    metadata:
+      labels:
+        app: rancher-ai-redis
+    spec:
+      containers:
+        - name: redis
+          image: "{{ .Values.redis.image.repository }}:{{ .Values.redis.image.tag }}"
+          imagePullPolicy: {{ .Values.redis.image.pullPolicy }}
+          command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
+          ports:
+            - containerPort: {{ .Values.redis.service.port }}
+          volumeMounts:
+            - name: redis-config
+              mountPath: /usr/local/etc/redis
+            - name: redis-data
+              mountPath: /data
+      volumes:
+        - name: redis-config
+{{- if .Values.redis.useConfig }}
+          configMap:
+            name: redis-config
+{{- else }}
+          emptyDir: {}
+{{- end }}
+        - name: redis-data
+{{- if .Values.redis.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: redis-data
+{{- else }}
+          emptyDir: {}
+{{- end }}

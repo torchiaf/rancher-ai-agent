@@ -39,18 +39,18 @@ class RedisClient:
             except Exception:
                 pass
             
-    async def store(self, session_id: str, text: str = "", max_history: int = 1000):
-            if self.client and session_id:
-                try:
-                    # Fast aggregation reads by session
-                    session_key = f"history:{session_id}"
-                    
-                    await self.client.rpush(session_key, text)
-                    await self.client.ltrim(session_key, -max_history, -1)
-                except Exception:
-                    pass
+    async def store(self, session_id: str, text: str = "", max_history: int = 10000):
+        if self.client and session_id:
+            try:
+                # Fast aggregation reads by session
+                session_key = f"history:{session_id}"
+                
+                await self.client.rpush(session_key, text)
+                await self.client.ltrim(session_key, -max_history, -1)
+            except Exception:
+                pass
 
-    async def fetch(self, session_id: str, max_history: int = 1000) -> list[str]:
+    async def fetch(self, session_id: str, max_history: int = 10000) -> list[str]:
         if self.client and session_id:
             try:
                 # Last messages reads by session

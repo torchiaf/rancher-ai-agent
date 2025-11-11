@@ -35,18 +35,15 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 
 init_config = {}
 
-# Track running autocomplete tasks per session so we can cancel them
-active_autocomplete_tasks: dict[str, asyncio.Task] = {}
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     try:
         LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO').upper()
         logging.getLogger().setLevel(LOG_LEVEL)
-        init_config["llm"] = get_llm()
+        
+        app.mem_agent = await create_memory_agent("redis://rancher-ai-redis")
 
-        global mem_agent
-        mem_agent = await create_memory_agent("redis://rancher-ai-redis")
+        init_config["llm"] = get_llm()
 
         logging.info(f"Using model: {init_config['llm']}")
         # if ENABLE_RAG flag is set, initialize the RAG retriever tool
@@ -57,12 +54,22 @@ async def lifespan(app: FastAPI):
                 "retrieve_rancher_docs",
                 "Search and return relevant passages from local Rancher/SUSE documentation. Always use the retrieve_rancher_docs tool when relevant to fetch up-to-date Rancher documentation.",
             )
+            
+        # Current session id set by messages websocket and consumed by autocomplete websocket
+        # TODO should include userId
+        current_session_id: str | None = None
+        app.current_session_id = current_session_id
+
+        # Track running autocomplete tasks per session so we can cancel them
+        active_autocomplete_tasks: dict[str, asyncio.Task] = {}
+        app.active_autocomplete_tasks = active_autocomplete_tasks
+
     except ValueError as e:
         logging.critical(e)
         raise e
     yield
 
-    await mem_agent.destroy()
+    await app.mem_agent.destroy()
     init_config.clear()
 
 app = FastAPI(lifespan=lifespan)
@@ -76,7 +83,11 @@ async def websocket_messages_endpoint(websocket: WebSocket):
     handles the back-and-forth communication with the client.
     """
     await websocket.accept()
-    logging.debug("ws/messages connection opened")
+
+    session_id = websocket.query_params.get("sessionId", str(uuid.uuid4()))
+    app.current_session_id = session_id
+
+    logging.debug(f"ws/messages connection opened - session_id={session_id}")
     
     params = get_ws_connection_params(websocket)
 
@@ -103,8 +114,8 @@ async def websocket_messages_endpoint(websocket: WebSocket):
             while True:
                 try:
                     request = await websocket.receive_text()
-                    
-                    prompt, context, session_id, request_id = _parse_websocket_request(request)
+
+                    prompt, context, request_id = _parse_websocket_request(request)
 
                     if context:
                         context_prompt = ". Use the following parameters to populate tool calls when appropriate. \n Only include parameters relevant to the user’s request (e.g., omit namespace for cluster-wide operations). \n Parameters (separated by ;): \n "
@@ -121,6 +132,8 @@ async def websocket_messages_endpoint(websocket: WebSocket):
                         websocket=websocket)
                 except WebSocketDisconnect:
                     logging.info(f"Client {websocket.client.host} disconnected.")
+
+                    app.current_session_id = None
                     break
                 except Exception as e:
                     logging.error(f"An error occurred: {e}")
@@ -143,7 +156,10 @@ async def websocket_autocomplete_endpoint(websocket: WebSocket):
     handles the back-and-forth communication with the client.
     """
     await websocket.accept()
-    logging.debug("ws/autocomplete connection opened")
+
+    session_id = getattr(app, "current_session_id", None) or websocket.query_params.get("sessionId", "default")
+
+    logging.debug(f"ws/autocomplete connection opened - session_id={session_id}")
 
     params = get_ws_connection_params(websocket)
 
@@ -169,7 +185,7 @@ async def websocket_autocomplete_endpoint(websocket: WebSocket):
             try:
                 request = await websocket.receive_text()
 
-                prompt, context, session_id, request_id = _parse_websocket_request(request)
+                prompt, context, request_id = _parse_websocket_request(request)
 
                 if context:
                     context_prompt = ". Use the following parameters to populate tool calls when appropriate. \n Only include parameters relevant to the user’s request (e.g., omit namespace for cluster-wide operations). \n Parameters (separated by ;): \n "
@@ -178,11 +194,11 @@ async def websocket_autocomplete_endpoint(websocket: WebSocket):
                     prompt += context_prompt
 
                 # augment prompt with recent agent replies seen on the messages websocket for this client host.
-                last_messages = await mem_agent.fetch_messages(session_id)
+                last_messages = await app.mem_agent.fetch_messages(session_id)
                 prompt = f"Use the following recent agent replies as candidates for completion:\n '{''.join(last_messages)}'\n\nUser input: {prompt}"
 
                 # For autocomplete, cancel any previous running autocomplete task for this session
-                prev_entry = active_autocomplete_tasks.get(session_id)
+                prev_entry = app.active_autocomplete_tasks.get(session_id)
                 # Normalize prev task and finished_event if stored as dict or bare task
                 prev_task = None
                 prev_finished = None
@@ -227,7 +243,7 @@ async def websocket_autocomplete_endpoint(websocket: WebSocket):
                     send_opening_tag=False,
                 ))
 
-                active_autocomplete_tasks[session_id] = {"task": task, "renew": None, "finished_event": finished_event}
+                app.active_autocomplete_tasks[session_id] = {"task": task, "renew": None, "finished_event": finished_event}
             except WebSocketDisconnect:
                 logging.info(f"Client {websocket.client.host} disconnected.")
                 break
@@ -275,7 +291,7 @@ async def stream_messages_agent_response(
                 text = _extract_text_from_chunk_content(chunk.content)
                 await websocket.send_text(text)
                 # store recent agent replies
-                await mem_agent.store_messages(session_id, request_id, text=text)
+                await app.mem_agent.store_messages(session_id, request_id, text=text)
 
         if event == "updates":
             if interrupt_value := data.get("__interrupt__"):
@@ -291,7 +307,7 @@ async def stream_messages_agent_response(
         if event == "custom":
             await websocket.send_text(data)
             # store recent mcp replies
-            await mem_agent.store_messages(session_id, request_id, text=data)
+            await app.mem_agent.store_messages(session_id, request_id, text=data)
 
 async def stream_autocomplete_agent_response(
     agent: CompiledStateGraph,
@@ -542,7 +558,7 @@ def _extract_text_from_chunk_content(chunk_content: any) -> str:
     
     return str(chunk_content) if chunk_content is not None else ""
 
-def _parse_websocket_request(request: str) -> tuple[str, dict, str, str]:
+def _parse_websocket_request(request: str) -> tuple[str, dict, str]:
     """
     Parses the incoming websocket request.
 
@@ -559,9 +575,8 @@ def _parse_websocket_request(request: str) -> tuple[str, dict, str, str]:
         json_request = json.loads(request)
         prompt = json_request.get("prompt", "")
         context = json_request.get("context", {})
-        session_id = json_request.get("sessionId", "default")
         request_id = str(uuid.uuid4())
 
-        return prompt, context, session_id, request_id
+        return prompt, context, request_id
     except json.JSONDecodeError:
-        return request, {}, None, None
+        return request, {}, None

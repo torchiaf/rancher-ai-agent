@@ -5,6 +5,7 @@ import json
 import uuid
 from enum import Enum
 
+import httpx
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from starlette.websockets import WebSocketState
 from fastapi.responses import HTMLResponse
@@ -56,14 +57,6 @@ async def lifespan(app: FastAPI):
             )
 
         """
-        Current session id set by messages websocket and consumed by autocomplete websocket
-        TODO should include userId
-        
-        current_session_id: str | None
-        """
-        app.current_session_id = None
-
-        """
         Maps session IDs to their active autocomplete tasks.
         
         active_autocomplete_tasks: dict[str, asyncio.Task]
@@ -81,7 +74,8 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 @app.websocket("/agent/ws/messages")
-async def websocket_messages_endpoint(websocket: WebSocket):
+@app.websocket("/agent/ws/messages/{session_id}")
+async def websocket_messages_endpoint(websocket: WebSocket, session_id: str | None = None):
     """
     WebSocket endpoint for the conversation messages.
 
@@ -89,15 +83,19 @@ async def websocket_messages_endpoint(websocket: WebSocket):
     handles the back-and-forth communication with the client.
     """
     await websocket.accept()
-
-    session_id = websocket.query_params.get("sessionId", str(uuid.uuid4()))
-    app.current_session_id = session_id
-
-    logging.debug(f"ws/messages connection opened - session_id={session_id}")
     
-    params = get_ws_connection_params(websocket)
+    connection_params = get_ws_connection_params(websocket)
+    
+    # TODO dev only, the session_id should be provided by the client
+    if not session_id:
+        user_id = await get_user_id(websocket)
+        session_id = await app.mem_agent.get_current_session(user_id)
+        if not session_id:
+            session_id = await app.mem_agent.create_session(user_id)
 
-    async with streamablehttp_client(**params) as (read, write, _):
+    logging.info(f"ws/messages connection opened - session_id={session_id}")
+
+    async with streamablehttp_client(**connection_params) as (read, write, _):
         # This will create one mcp connection for each websocket connection. This is needed because we need to pass the rancher token in the header.
         async with ClientSession(read, write) as session:
             await session.initialize()
@@ -138,8 +136,6 @@ async def websocket_messages_endpoint(websocket: WebSocket):
                         websocket=websocket)
                 except WebSocketDisconnect:
                     logging.info(f"Client {websocket.client.host} disconnected.")
-
-                    app.current_session_id = None
                     break
                 except Exception as e:
                     logging.error(f"An error occurred: {e}")
@@ -154,7 +150,8 @@ async def websocket_messages_endpoint(websocket: WebSocket):
     logging.debug("ws connection closed")
 
 @app.websocket("/agent/ws/autocomplete")
-async def websocket_autocomplete_endpoint(websocket: WebSocket):
+@app.websocket("/agent/ws/autocomplete/{session_id}")
+async def websocket_autocomplete_endpoint(websocket: WebSocket, session_id: str | None = None):
     """
     WebSocket endpoint for the autocomplete messages.
     
@@ -163,13 +160,16 @@ async def websocket_autocomplete_endpoint(websocket: WebSocket):
     """
     await websocket.accept()
 
-    session_id = getattr(app, "current_session_id", None) or websocket.query_params.get("sessionId", "default")
+    connection_params = get_ws_connection_params(websocket)
 
-    logging.debug(f"ws/autocomplete connection opened - session_id={session_id}")
+    # TODO dev only, the session_id should be provided by the client
+    if not session_id:
+        user_id = await get_user_id(websocket)
+        session_id = await app.mem_agent.get_current_session(user_id)
 
-    params = get_ws_connection_params(websocket)
+    logging.info(f"ws/autocomplete connection opened - session_id={session_id}")
 
-    async with streamablehttp_client(**params):
+    async with streamablehttp_client(**connection_params):
         thread_id = str(uuid.uuid4())
 
         tools = []
@@ -383,13 +383,40 @@ def get_ws_connection_params(websocket: WebSocket) -> dict:
     if websocket.url.port:
         rancher_url += ":"+str(websocket.url.port)
 
+    rancher_token = str(cookies.get("R_SESS"))
+
     return {
-        "url": "http://rancher-mcp-server",
-        "headers": {
-            "R_token": str(cookies.get("R_SESS")),
-            "R_url": rancher_url
+        "connection": {
+            "url": "http://rancher-mcp-server",
+            "headers": {
+                "R_token": rancher_token,
+                "R_url": rancher_url
+            }   
         }
     }
+
+async def get_user_id(websocket: WebSocket) -> str:
+    cookies = websocket.cookies
+
+    try:
+        rancher_token = str(cookies.get("R_SESS"))
+
+        async with httpx.AsyncClient(timeout=5.0, verify=False) as client:
+            resp = await client.get("https://172.17.0.1/v3/users?me=true", headers={
+                "Cookie": f"R_SESS={rancher_token}",
+            })
+            payload = resp.json() 
+            
+            user_id = payload["data"][0]["id"]
+            
+            if user_id:
+                logging.info("user API returned: %s - userId %s", resp.status_code, user_id)
+
+                return user_id
+    except Exception as e:
+        logging.error("user API call failed: %s", e)
+
+    return None
 
 def get_llm() -> BaseLanguageModel:
     """

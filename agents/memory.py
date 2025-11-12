@@ -20,15 +20,31 @@ class MemoryAgent:
     async def destroy(self):
         await self.cache_client.disconnect()
     
+    async def create_session(self, user_id: str):
+        return await self.cache_client.create_session(user_id)
+
+    async def fetch_sessions(self, user_id: str) -> list[str]:
+        return await self.cache_client.fetch_sessions(user_id)
+
+    async def get_current_session(self, user_id: str) -> str | None:
+        sessions = await self.cache_client.fetch_sessions(user_id)
+
+        # Fetch active session
+        for session in reversed(sessions):
+            if session.get("status") == "active":
+                return session.get("session_id")
+
+        return None
+
     async def store_messages(self, session_id: str, request_id: str, text: str = ""):        
-        await self.cache_client.store(
+        await self.cache_client.store_messages(
             session_id=session_id,
             request_id=request_id,
             text=text
         )
 
     async def fetch_messages(self, session_id: str, max_count: int = 10) -> list[str]:
-        return await self.cache_client.fetch(session_id, max_count)
+        return await self.cache_client.fetch_messages(session_id, max_count)
 
 async def create_memory_agent(cache_client_url: str) -> MemoryAgent:
     """

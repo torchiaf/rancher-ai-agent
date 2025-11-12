@@ -29,7 +29,8 @@
         </div>
         <input type="text" id="autocompleteText" autocomplete="off" style="margin-top:8px;"/>
         <script>
-            const ws = new WebSocket("wss://{{ url }}/api/v1/namespaces/cattle-ai-agent-system/services/http:rancher-ai-agent:80/proxy/agent/ws/messages?sessionId=default");
+            const ws = new WebSocket("wss://{{ url }}/api/v1/namespaces/cattle-ai-agent-system/services/http:rancher-ai-agent:80/proxy/agent/ws/messages");
+
             ws.onopen = function(event) {
                 console.log("WebSocket connection established.");
                 const li = document.createElement('li');

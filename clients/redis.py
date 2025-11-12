@@ -107,6 +107,7 @@ class RedisClient:
                     except Exception:
                         pass
 
+            logging.debug(f"Fetched messages for session {session_id}: {messages}")
             return messages
         except Exception:
             return []

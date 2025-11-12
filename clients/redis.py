@@ -1,4 +1,7 @@
 import logging
+import time
+import uuid
+import json
 
 import redis.asyncio as aioredis
 
@@ -38,8 +41,72 @@ class RedisClient:
                 logging.info(f"Disconnected Redis client for {self.url}")
             except Exception:
                 pass
+    async def create_session(self, user_id: str) -> str:
+        """
+        Create and register a new session for a user.
 
-    async def store(self, session_id: str, request_id: str, text: str = ""):
+        - Ensures a session hash exists at `session:s-{session_id}` with `status=active` and `created_at`.
+        - Appends the session payload (JSON) to the list `sessions:u-{user_id}` (creates the list if missing).
+
+        Returns the created session_id or empty string on failure.
+        """
+        if not self.client or not user_id:
+            return ""
+
+        try:
+            session_id = str(uuid.uuid4())
+
+            session_key = f"session:s-{session_id}"
+            
+            # Store session metadata
+            mapping = {
+                "status": "active",
+                "session_id": session_id,
+                "user_id": user_id,
+                "created_at": str(int(time.time())),
+            }
+            await self.client.hset(session_key, mapping=mapping)
+            
+            # Set TTL on the session hash only (1 day)
+            try:
+                await self.client.expire(session_key, 24 * 3600)
+            except Exception:
+                pass
+            
+            # Append the JSON payload to sessions:u-{user_id}
+            user_list = f"sessions:u-{user_id}"
+            payload = json.dumps(mapping)
+            await self.client.rpush(user_list, payload)
+
+            logging.info(f"Created session {session_id} for user {user_id} and appended to {user_list}")
+            return session_id
+        except Exception as e:
+            logging.warning(f"Failed to create session for user {user_id}: {e}")
+            return ""
+    
+    async def fetch_sessions(self, user_id: str) -> list[str]:
+        """
+        Fetch all chat sessions for a user from Redis.
+        """
+        logging.debug(f"Fetching sessions for user {user_id}")
+
+        if not (self.client and user_id):
+            return []
+
+        try:
+            keys_list = f"sessions:u-{user_id}"
+            raw = await self.client.lrange(keys_list, 0, -1)
+            sessions = []
+            for item in raw:
+                try:
+                    sessions.append(json.loads(item))
+                except Exception:
+                    sessions.append(item)
+            return sessions
+        except Exception:
+            return []
+
+    async def store_messages(self, session_id: str, request_id: str, text: str = ""):
         """
         Store a text chunk for a specific session_id and request_id.
 
@@ -54,7 +121,7 @@ class RedisClient:
 
             if not exists:
                 # Record the request key in the per-session keys list
-                keys_list = f"history_keys:s-{session_id}"
+                keys_list = f"history-keys:s-{session_id}"
                 await self.client.rpush(keys_list, per_request_key)
 
                 # Set TTL on per-request key (7 days) to avoid unbounded growth.
@@ -66,7 +133,7 @@ class RedisClient:
         except Exception:
             pass
 
-    async def fetch(self, session_id: str, max_count: int) -> list[str]:
+    async def fetch_messages(self, session_id: str, max_count: int) -> list[str]:
         logging.debug(f"Fetching messages for session {session_id} with max_count {max_count}")
 
         if not (self.client and session_id):
@@ -75,7 +142,7 @@ class RedisClient:
         try:
             keys = []
             try:
-                keys_list = f"history_keys:s-{session_id}"
+                keys_list = f"history-keys:s-{session_id}"
                 all_keys = await self.client.lrange(keys_list, 0, -1)
                 
                 if not all_keys:

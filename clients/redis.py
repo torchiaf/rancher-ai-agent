@@ -70,6 +70,7 @@ class RedisClient:
         if not (self.client and session_id):
             return []
 
+        logging.debug(f"Fetching messages for session {session_id} with max_count {max_count}")
         try:
             keys = []
             try:
@@ -107,6 +108,7 @@ class RedisClient:
                     except Exception:
                         pass
 
+            logging.debug(f"Fetched messages for session {session_id}: {messages}")
             return messages
         except Exception:
             return []

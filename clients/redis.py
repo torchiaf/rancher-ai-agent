@@ -67,6 +67,8 @@ class RedisClient:
             pass
 
     async def fetch(self, session_id: str, max_count: int) -> list[str]:
+        logging.debug(f"Fetching messages for session {session_id} with max_count {max_count}")
+
         if not (self.client and session_id):
             return []
 

@@ -61,7 +61,7 @@ async def lifespan(app: FastAPI):
         
         current_session_id: str | None
         """
-        app.current_session_id = None
+        app.current_session_id = str(uuid.uuid4())
 
         """
         Maps session IDs to their active autocomplete tasks.
@@ -90,8 +90,7 @@ async def websocket_messages_endpoint(websocket: WebSocket):
     """
     await websocket.accept()
 
-    session_id = websocket.query_params.get("sessionId", str(uuid.uuid4()))
-    app.current_session_id = session_id
+    session_id = getattr(app, "current_session_id", "default")
 
     logging.debug(f"ws/messages connection opened - session_id={session_id}")
     
@@ -163,7 +162,7 @@ async def websocket_autocomplete_endpoint(websocket: WebSocket):
     """
     await websocket.accept()
 
-    session_id = getattr(app, "current_session_id", None) or websocket.query_params.get("sessionId", "default")
+    session_id = getattr(app, "current_session_id", "default")
 
     logging.debug(f"ws/autocomplete connection opened - session_id={session_id}")
 

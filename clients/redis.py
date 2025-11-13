@@ -2,6 +2,7 @@ import logging
 import time
 import uuid
 import json
+import asyncio
 
 import redis.asyncio as aioredis
 
@@ -131,6 +132,17 @@ class RedisClient:
 
             await self.client.rpush(per_request_key, item)
             await self.client.ltrim(per_request_key, -10000, -1)
+            
+            # Publish the chunk to a channel for external subscribers
+            try:
+                channel = f"channel:history:s-{session_id}:r-{request_id}"
+                task = asyncio.create_task(self.client.publish(channel, item))
+                def _on_done(t):
+                    if exc := t.exception():
+                        logging.warning("Redis publish failed: %s", exc)
+                task.add_done_callback(_on_done)
+            except Exception:
+                pass
         except Exception:
             pass
 

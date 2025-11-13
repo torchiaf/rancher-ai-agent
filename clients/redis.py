@@ -106,7 +106,7 @@ class RedisClient:
         except Exception:
             return []
 
-    async def store_messages(self, session_id: str, request_id: str, text: str = ""):
+    async def store_chunk(self, session_id: str, request_id: str, text: str = "", role: str = "agent"):
         """
         Store a text chunk for a specific session_id and request_id.
 
@@ -114,27 +114,28 @@ class RedisClient:
         """
         if not self.client or not session_id or not request_id:
             return
-
         try:
             per_request_key = f"history:s-{session_id}:r-{request_id}"
             exists = await self.client.exists(per_request_key)
 
             if not exists:
                 # Record the request key in the per-session keys list
-                keys_list = f"history-keys:s-{session_id}"
+                keys_list = f"history_keys:s-{session_id}"
                 await self.client.rpush(keys_list, per_request_key)
 
                 # Set TTL on per-request key (7 days) to avoid unbounded growth.
                 await self.client.expire(per_request_key, 7 * 24 * 3600)
 
             # Append the chunk to the list for this request and trim
-            await self.client.rpush(per_request_key, text)
+            item = json.dumps({"role": role, "text": text, "ts": int(time.time())})
+
+            await self.client.rpush(per_request_key, item)
             await self.client.ltrim(per_request_key, -10000, -1)
         except Exception:
             pass
 
-    async def fetch_messages(self, session_id: str, max_count: int) -> list[str]:
-        logging.debug(f"Fetching messages for session {session_id} with max_count {max_count}")
+    async def fetch_messages(self, session_id: str, max_count: int, role_filter: list[str] | None = None) -> list[str]:
+        logging.debug(f"Fetching messages for session {session_id} with max_count {max_count} and role_filter={role_filter}")
 
         if not (self.client and session_id):
             return []
@@ -142,9 +143,9 @@ class RedisClient:
         try:
             keys = []
             try:
-                keys_list = f"history-keys:s-{session_id}"
+                keys_list = f"history_keys:s-{session_id}"
                 all_keys = await self.client.lrange(keys_list, 0, -1)
-                
+
                 if not all_keys:
                     logging.debug(f"history keys list missing or empty for session {session_id}")
                     return []
@@ -162,20 +163,35 @@ class RedisClient:
             try:
                 slices = await pipe.execute()
                 for vals in slices:
-                    if vals:
-                        # merge chunks for a single request into one string
-                        merged = "".join(vals)
-                        messages.append(merged)
+                    if not vals:
+                        continue
+
+                    messages = self.__format_messages(vals, messages, role_filter)
             except Exception:
                 # fallback to per-key fetch on pipeline failure
                 for key in keys:
                     try:
                         vals = await self.client.lrange(key, 0, -1)
-                        if vals:
-                            messages.append("".join(vals))
+                        if not vals:
+                            continue
+                        messages = self.__format_messages(vals, messages, role_filter)
                     except Exception:
                         pass
 
             return messages
         except Exception:
             return []
+
+    def __format_messages(self, vals: list[str], messages: list[str], role_filter: list[str] | None = None) -> dict:
+        parts = []
+        for raw in vals:
+            try:
+                obj = json.loads(raw)
+            except Exception:
+                obj = {"role": "agent", "text": raw, "ts": 0}
+            if role_filter is None or obj.get("role") in role_filter:
+                parts.append(obj.get("text", ""))
+        if parts:
+            messages.append("".join(parts))
+            
+        return messages

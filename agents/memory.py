@@ -36,15 +36,16 @@ class MemoryAgent:
 
         return None
 
-    async def store_messages(self, session_id: str, request_id: str, text: str = ""):        
-        await self.cache_client.store_messages(
+    async def store_chunk(self, session_id: str, request_id: str, text: str = "", role: str = "agent"):
+        await self.cache_client.store_chunk(
             session_id=session_id,
             request_id=request_id,
-            text=text
+            text=text,
+            role=role
         )
 
-    async def fetch_messages(self, session_id: str, max_count: int = 10) -> list[str]:
-        return await self.cache_client.fetch_messages(session_id, max_count)
+    async def fetch_messages(self, session_id: str, max_count: int = 10, role_filter: list[str] | None = None) -> list[str]:
+        return await self.cache_client.fetch_messages(session_id, max_count, role_filter)
 
 async def create_memory_agent(cache_client_url: str) -> MemoryAgent:
     """

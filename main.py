@@ -275,12 +275,12 @@ async def websocket_autocomplete_endpoint(websocket: WebSocket, session_id: str 
                 logging.error(f"An error occurred on autocomplete request: {e}")
                 pass
 
-@app.get("/agent")
-async def get(request: Request):
+@app.get("/agent/{session_id}")
+async def get(request: Request, session_id: str):
     """Serves the main HTML page for the chat client."""
     with open("index.html") as f:
         html_content = f.read()
-        modified_html = html_content.replace("{{ url }}", request.url.hostname)
+        modified_html = html_content.replace("{{ url }}", request.url.hostname).replace("{{ session_id }}", session_id)
 
     return HTMLResponse(modified_html)
 

@@ -27,7 +27,8 @@ class RedisClient:
         except Exception as e:
             logging.warning(f"Failed to create Redis client for {self.url}: {e}")
             self.client = None
-    
+            raise
+
     async def disconnect(self):
         """
         Disconnects from the Redis server.

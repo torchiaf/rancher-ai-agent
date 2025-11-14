@@ -1,14 +1,13 @@
 aiAgent:
   image:
-    repository: ghcr.io/rancher-sandbox/rancher-ai-agent
-    tag: v0.0.1-alpha.30
-    pullPolicy: IfNotPresent
+    repository: ghcr.io/torchiaf/rancher-ai-agent
+    tag: v1.0.13
+    pullPolicy: Always
 mcp:
   image:
     repository: ghcr.io/rancher-sandbox/rancher-ai-mcp
     tag: v0.0.1-alpha.23
     pullPolicy: IfNotPresent
-
 redis:
   image:
     repository: redis
@@ -51,7 +50,6 @@ redis:
     size: 1Gi
 
   resources: {}
-
 db:
   replicaCount: 1
   service:
@@ -74,6 +72,28 @@ db:
       pullPolicy: IfNotPresent
     redis:
       channel: "channel:history:s-*:r-*"
+chat:
+  replicaCount: 1
+
+  image:
+    repository: ghcr.io/torchiaf/rancher-ai-chat-api
+    tag: v1.0.1
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    port: 5000
+
+  readinessProbe:
+    path: /health
+    port: 5000
+    initialDelaySeconds: 5
+    periodSeconds: 10
+  livenessProbe:
+    path: /health
+    port: 5000
+    initialDelaySeconds: 10
+    periodSeconds: 20
 
 llmModel: ""
 ollamaUrl: ""

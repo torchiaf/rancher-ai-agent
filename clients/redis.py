@@ -1,6 +1,5 @@
 import logging
 import time
-import uuid
 import json
 import asyncio
 
@@ -42,70 +41,6 @@ class RedisClient:
                 logging.info(f"Disconnected Redis client for {self.url}")
             except Exception:
                 pass
-    async def create_session(self, user_id: str) -> str:
-        """
-        Create and register a new session for a user.
-
-        - Ensures a session hash exists at `session:s-{session_id}` with `status=active` and `created_at`.
-        - Appends the session payload (JSON) to the list `sessions:u-{user_id}` (creates the list if missing).
-
-        Returns the created session_id or empty string on failure.
-        """
-        if not self.client or not user_id:
-            return ""
-
-        try:
-            session_id = str(uuid.uuid4())
-
-            session_key = f"session:s-{session_id}"
-            
-            # Store session metadata
-            mapping = {
-                "status": "active",
-                "session_id": session_id,
-                "user_id": user_id,
-                "created_at": str(int(time.time())),
-            }
-            await self.client.hset(session_key, mapping=mapping)
-            
-            # Set TTL on the session hash only (1 day)
-            try:
-                await self.client.expire(session_key, 24 * 3600)
-            except Exception:
-                pass
-            
-            # Append the JSON payload to sessions:u-{user_id}
-            user_list = f"sessions:u-{user_id}"
-            payload = json.dumps(mapping)
-            await self.client.rpush(user_list, payload)
-
-            logging.info(f"Created session {session_id} for user {user_id} and appended to {user_list}")
-            return session_id
-        except Exception as e:
-            logging.warning(f"Failed to create session for user {user_id}: {e}")
-            return ""
-    
-    async def fetch_sessions(self, user_id: str) -> list[str]:
-        """
-        Fetch all chat sessions for a user from Redis.
-        """
-        logging.debug(f"Fetching sessions for user {user_id}")
-
-        if not (self.client and user_id):
-            return []
-
-        try:
-            keys_list = f"sessions:u-{user_id}"
-            raw = await self.client.lrange(keys_list, 0, -1)
-            sessions = []
-            for item in raw:
-                try:
-                    sessions.append(json.loads(item))
-                except Exception:
-                    sessions.append(item)
-            return sessions
-        except Exception:
-            return []
 
     async def store_chunk(self, session_id: str, request_id: str, text: str = "", role: str = "agent"):
         """

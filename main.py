@@ -73,7 +73,6 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
-@app.websocket("/agent/ws/messages")
 @app.websocket("/agent/ws/messages/{session_id}")
 async def websocket_messages_endpoint(websocket: WebSocket, session_id: str | None = None):
     """
@@ -86,12 +85,7 @@ async def websocket_messages_endpoint(websocket: WebSocket, session_id: str | No
     
     connection_params = get_ws_connection_params(websocket)
     
-    # TODO dev only, the session_id should be provided by the client
-    if not session_id:
-        user_id = await get_user_id(websocket)
-        session_id = await app.mem_agent.get_current_session(user_id)
-        if not session_id:
-            session_id = await app.mem_agent.create_session(user_id)
+    # TODO verify session_id belongs to the client
 
     logging.info(f"ws/messages connection opened - session_id={session_id}")
 
@@ -151,7 +145,6 @@ async def websocket_messages_endpoint(websocket: WebSocket, session_id: str | No
             
     logging.debug("ws connection closed")
 
-@app.websocket("/agent/ws/autocomplete")
 @app.websocket("/agent/ws/autocomplete/{session_id}")
 async def websocket_autocomplete_endpoint(websocket: WebSocket, session_id: str | None = None):
     """
@@ -164,10 +157,7 @@ async def websocket_autocomplete_endpoint(websocket: WebSocket, session_id: str 
 
     connection_params = get_ws_connection_params(websocket)
 
-    # TODO dev only, the session_id should be provided by the client
-    if not session_id:
-        user_id = await get_user_id(websocket)
-        session_id = await app.mem_agent.get_current_session(user_id)
+    # TODO verify session_id belongs to the client
 
     logging.info(f"ws/autocomplete connection opened - session_id={session_id}")
 

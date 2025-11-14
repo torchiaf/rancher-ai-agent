@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: rancher-ai-mysql-pvc
+  namespace: cattle-ai-agent-system
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.db.mysql.persistence.size }}
+  {{- if .Values.db.mysql.persistence.storageClass }}
+  storageClassName: {{ .Values.db.mysql.persistence.storageClass }}
+  {{- end }}

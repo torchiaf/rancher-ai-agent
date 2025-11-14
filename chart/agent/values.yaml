@@ -52,6 +52,29 @@ redis:
 
   resources: {}
 
+db:
+  replicaCount: 1
+  service:
+    type: ClusterIP
+    port: 3306
+  mysql:
+    image:
+      repository: mysql
+      tag: "8"
+      pullPolicy: IfNotPresent
+    rootPassword: "rancher-ai"
+    database: "rancher-ai"
+    persistence:
+      size: 1Gi
+      storageClass: manual
+  supervisor:
+    image:
+      repository: ghcr.io/torchiaf/rancher-ai-db
+      tag: v1.0.2
+      pullPolicy: IfNotPresent
+    redis:
+      channel: "channel:history:s-*:r-*"
+
 llmModel: ""
 ollamaUrl: ""
 googleApiKey:

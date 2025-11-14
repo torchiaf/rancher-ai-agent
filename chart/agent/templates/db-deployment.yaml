@@ -1,0 +1,74 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rancher-ai-mysql
+  labels:
+    app: rancher-ai-mysql
+spec:
+  replicas: {{ .Values.db.replicaCount }}
+  selector:
+    matchLabels:
+      app: rancher-ai-mysql
+  template:
+    metadata:
+      labels:
+        app: rancher-ai-mysql
+    spec:
+      containers:
+        - name: mysql
+          image: "{{ .Values.db.mysql.image.repository }}:{{ .Values.db.mysql.image.tag }}"
+          imagePullPolicy: {{ .Values.db.mysql.image.pullPolicy }}
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              value: "{{ .Values.db.mysql.rootPassword }}"
+            - name: MYSQL_DATABASE
+              value: "{{ .Values.db.mysql.database }}"
+          ports:
+            - containerPort: 3306
+          volumeMounts:
+            - name: mysql-data
+              mountPath: /var/lib/mysql
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - 'mysqladmin ping -h 127.0.0.1 -uroot -p"${MYSQL_ROOT_PASSWORD}" || exit 1'
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - 'mysqladmin ping -h 127.0.0.1 -uroot -p"${MYSQL_ROOT_PASSWORD}" || exit 1'
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 3
+
+        - name: db-supervisor
+          image: "{{ .Values.db.supervisor.image.repository }}:{{ .Values.db.supervisor.image.tag }}"
+          imagePullPolicy: {{ .Values.db.supervisor.image.pullPolicy }}
+          env:
+            - name: MYSQL_HOST
+              value: "127.0.0.1"
+            - name: MYSQL_PORT
+              value: "3306"
+            - name: MYSQL_USER
+              value: "root"
+            - name: MYSQL_ROOT_PASSWORD
+              value: "{{ .Values.db.mysql.rootPassword }}"
+            - name: MYSQL_DB
+              value: "{{ .Values.db.mysql.database }}"
+            - name: REDIS_HOST
+              value: rancher-ai-redis
+            - name: REDIS_CHANNEL
+              value: "{{ .Values.db.supervisor.redis.channel }}"
+            - name: LOG_LEVEL
+              value: "{{ .Values.log.level }}"
+          resources: {}
+      volumes:
+        - name: mysql-data
+          persistentVolumeClaim:
+            claimName: rancher-ai-mysql-pvc

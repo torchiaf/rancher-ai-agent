@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: rancher-ai-mysql
+  namespace: cattle-ai-agent-system
+spec:
+  type: {{ .Values.db.service.type }}
+  selector:
+    app: rancher-ai-mysql
+  ports:
+    - port: {{ .Values.db.service.port }}
+      targetPort: 3306
+      name: mysql

@@ -138,5 +138,15 @@ spec:
                 optional: true
           - name: LOG_LEVEL
             value: "{{ .Values.log.level }}"
+          - name: DB_HOST
+            value: rancher-ai-mysql
+          - name: DB_PORT
+            value: "3306"
+          - name: DB_USER
+            value: "root"
+          - name: DB_PASSWORD
+            value: "{{ .Values.db.mysql.rootPassword }}"
+          - name: DB_DATABASE
+            value: "{{ .Values.db.mysql.database }}"
         ports:
          - containerPort: 8000

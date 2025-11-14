@@ -42,7 +42,14 @@ async def lifespan(app: FastAPI):
         LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO').upper()
         logging.getLogger().setLevel(LOG_LEVEL)
         
-        app.mem_agent = await create_memory_agent("redis://rancher-ai-redis")
+        app.mem_agent = await create_memory_agent(
+            cache_client_url="redis://rancher-ai-redis",
+            db_host=os.environ.get("DB_HOST"),
+            db_port=int(os.environ.get("DB_PORT")),
+            db_user=os.environ.get("DB_USER"),
+            db_password=os.environ.get("DB_PASSWORD"),
+            db_database=os.environ.get("DB_DATABASE")
+        )
 
         init_config["llm"] = get_llm()
 
@@ -83,9 +90,15 @@ async def websocket_messages_endpoint(websocket: WebSocket, session_id: str | No
     """
     await websocket.accept()
     
-    connection_params = get_ws_connection_params(websocket)
+    user_id = await get_user_id(websocket)
     
-    # TODO verify session_id belongs to the client
+    if not await app.mem_agent.check_session_permissions(session_id, user_id):
+        logging.warning(f"Permission denied for user {user_id} on session {session_id}")
+        await websocket.send_text(f'<error>{{"message": "Permission denied for session {session_id}"}}</error>')
+        await websocket.close()
+        return
+        
+    connection_params = get_ws_connection_params(websocket)
 
     logging.info(f"ws/messages connection opened - session_id={session_id}")
 
@@ -154,10 +167,16 @@ async def websocket_autocomplete_endpoint(websocket: WebSocket, session_id: str 
     handles the back-and-forth communication with the client.
     """
     await websocket.accept()
+    
+    user_id = await get_user_id(websocket)
+    
+    if not await app.mem_agent.check_session_permissions(session_id, user_id):
+        logging.warning(f"Permission denied for user {user_id} on session {session_id}")
+        await websocket.send_text(f'<error>{{"message": "Permission denied for session {session_id}"}}</error>')
+        await websocket.close()
+        return
 
     connection_params = get_ws_connection_params(websocket)
-
-    # TODO verify session_id belongs to the client
 
     logging.info(f"ws/autocomplete connection opened - session_id={session_id}")
 

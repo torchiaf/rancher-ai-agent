@@ -28,6 +28,17 @@
             <ul id="autocompleteMessages" style="list-style:none; margin:8px 0 0 0; padding:0;"></ul>
         </div>
         <input type="text" id="autocompleteText" autocomplete="off" style="margin-top:8px;"/>
+        
+        <!-- Test Summary -->
+       <h3 style="margin-top:32px;">Summary</h3>
+        <div id="summaryPanel" style="margin-top:8px; width:100%; max-width:720px; background:#fff; border:1px solid #ddd; padding:8px; overflow:auto; display: block; height: 100px; overflow: auto;">
+            <ul id="summaryMessages" style="list-style:none; margin:8px 0 0 0; padding:0;"></ul>
+        </div>
+        <form action="" onsubmit="sendSummary(event)">
+            <input type="text" id="summaryText" autocomplete="off" style="margin-top:8px; width:80%;"/>
+            <button style="margin-top:8px; width:18%;">Send</button>
+        </form>
+
         <script>
             const ws = new WebSocket("wss://{{ url }}/api/v1/namespaces/cattle-ai-agent-system/services/http:rancher-ai-agent:80/proxy/agent/ws/messages/{{ session_id }}");
 
@@ -142,6 +153,68 @@
                     }, AUTO_DEBOUNCE_MS);
                 });
             }
+
+                // Establish a WebSocket connection for summary
+                const summaryWs = new WebSocket("wss://{{ url }}/api/v1/namespaces/cattle-ai-agent-system/services/http:rancher-ai-agent:80/proxy/agent/ws/summary");
+
+                let currentSummaryLi;
+                summaryWs.onopen = function() {
+                    console.log('summary socket open');
+                    const li = document.createElement('li');
+                    li.textContent = 'Summary socket connected!';
+                    document.getElementById('summaryMessages').appendChild(li);
+                };
+
+                summaryWs.onmessage = function(event) {
+                    console.log("[summary] msg received."+ event.data);
+
+                    const sumPanel = document.getElementById('summaryMessages');
+                    const data = event.data;
+                    if (data.startsWith('<error>')) {
+                        alert(data.substring(7));
+                        return;
+                    }
+                    if (data === '<message>') {
+                        currentSummaryLi = document.createElement('li');
+                        currentSummaryLi.style.fontWeight = '600';
+                        sumPanel.appendChild(currentSummaryLi);
+                    } else if (data === '</message>') {
+                        currentSummaryLi = null;
+                    } else if (currentSummaryLi) {
+                        currentSummaryLi.textContent += data;
+                    } else {
+                        const m = document.createElement('li');
+                        m.textContent = data;
+                        sumPanel.appendChild(m);
+                    }
+                    sumPanel.parentElement.scrollTop = sumPanel.parentElement.scrollHeight;
+                };
+
+                summaryWs.onclose = function() {
+                    const li = document.createElement('li');
+                    li.textContent = 'Summary socket closed';
+                    document.getElementById('summaryMessages').appendChild(li);
+                };
+
+                summaryWs.onerror = function(e) { console.error('summary socket error', e); };
+
+                // Summary will only be sent on explicit Send click (no on-type sending)
+                const summaryInput = document.getElementById('summaryText');
+
+                function sendSummary(event) {
+                    const input = document.getElementById('summaryText');
+                    if (input && input.value && summaryWs && summaryWs.readyState === WebSocket.OPEN) {
+                        const payload = { prompt: input.value, context: [] };
+                        summaryWs.send(JSON.stringify(payload));
+                        const sumPanel = document.getElementById('summaryMessages');
+                        const message = document.createElement('li');
+                        message.textContent = `You: ${input.value}`;
+                        message.style.fontWeight = 'bold';
+                        sumPanel.appendChild(message);
+                        input.value = '';
+                    }
+                    if (event) event.preventDefault();
+                }
 
             // Function to send a message
             function sendMessage(event) {

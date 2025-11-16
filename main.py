@@ -30,6 +30,7 @@ from langfuse.langchain import CallbackHandler
 
 class RequestType(Enum):
     AUTOCOMPLETE = "autocomplete"
+    SUMMARY = "summary"
     MESSAGE = "message"
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -280,6 +281,65 @@ async def websocket_autocomplete_endpoint(websocket: WebSocket, session_id: str 
                 logging.error(f"An error occurred on autocomplete request: {e}")
                 pass
 
+@app.websocket("/agent/ws/summary")
+async def websocket_summary_endpoint(websocket: WebSocket):
+    """
+    WebSocket endpoint for the summary messages.
+
+    Accepts a WebSocket connection, sets up the agent and
+    handles the back-and-forth communication with the client.
+    """
+    await websocket.accept()
+
+    connection_params = get_ws_connection_params(websocket)
+
+    logging.info(f"ws/summary connection opened")
+
+    async with streamablehttp_client(**connection_params):
+        thread_id = str(uuid.uuid4())
+
+        tools = []
+        
+        # if ENABLE_RAG is true, add the retriever tool to the tools list
+        if os.environ.get("ENABLE_RAG", "false").lower() == "true":
+            tools = [init_config["retriever_tool"]]
+
+        agent = create_k8s_agent(init_config["llm"], tools, get_system_prompt(RequestType.SUMMARY), InMemorySaver())
+
+        config = {
+            "thread_id": thread_id,
+        }
+        if os.environ.get("LANGFUSE_SECRET_KEY") and os.environ.get("LANGFUSE_PUBLIC_KEY") and os.environ.get("LANGFUSE_HOST"):
+            langfuse_handler = CallbackHandler()
+            config["callbacks"] = [langfuse_handler]
+
+        while True:
+            try:
+                request = await websocket.receive_text()
+
+                prompt, context, request_id = _parse_websocket_request(request)
+
+                await websocket.send_text("<message>")
+                async for event, data in agent.astream(
+                    input={"messages": [{"role": "user", "content": prompt}]},
+                    config=config,
+                    stream_mode=["updates", "messages", "custom"]
+                ):
+                    if event == "messages":
+                        chunk, metadata = data
+                        if metadata.get("langgraph_node") == "agent" and chunk.content:
+                            text = _extract_text_from_chunk_content(chunk.content)
+                            await websocket.send_text(text)
+            except WebSocketDisconnect:
+                logging.info(f"Summary - Client {websocket.client.host} disconnected.")
+                break
+            except Exception as e:
+                logging.error(f"An error occurred on summary request: {e}")
+                pass
+            finally:
+                if websocket.client_state == WebSocketState.CONNECTED:
+                    await websocket.send_text("</message>")
+
 @app.get("/agent")
 @app.get("/agent/{session_id}")
 async def get(request: Request, session_id: str | None = None):
@@ -524,7 +584,7 @@ def get_system_prompt(type: RequestType) -> str:
 
     match type:
         case RequestType.AUTOCOMPLETE:
-            return """You are an expert, context-aware autocomplete engine. Complete the user's unfinished phrase naturally and concisely. Do not add any introductory text, explanations, or formatting. Only output the direct continuation of the user's text.
+            return """You are an expert, context-aware autocomplete engine. Complete the user's unfinished phrase naturally and concisely. Do not add any introductory text, explanations, or formatting. Only output the direct continuation of the user's text. Your response will be used to help the user complete their input in a Rancher UI context.
 
 ## CORE DIRECTIVES
 
@@ -540,6 +600,17 @@ def get_system_prompt(type: RequestType) -> str:
 
 ### Natural language Mentality
 * The completions should be in natural language, as the user would express it.
+"""
+        case RequestType.SUMMARY:
+            return """Each message is a list of recent agent replies to the user. Your task is to generate a concise summary of these replies, focusing on key points and relevant information. Your response will be used to assign a title to a Chat.
+
+## CORE DIRECTIVES
+
+### Conciseness
+* The summary MUST BE MAX 30 characters.
+* Summarize the content in a brief manner, highlighting only the most important aspects.
+* Avoid unnecessary details or lengthy explanations.
+* DO NOT include question marks or suggestions in the summary.
 """
 
         case RequestType.MESSAGE:

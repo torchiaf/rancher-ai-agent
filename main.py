@@ -80,6 +80,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
+@app.websocket("/agent/ws/messages")
 @app.websocket("/agent/ws/messages/{session_id}")
 async def websocket_messages_endpoint(websocket: WebSocket, session_id: str | None = None):
     """
@@ -92,7 +93,9 @@ async def websocket_messages_endpoint(websocket: WebSocket, session_id: str | No
     
     user_id = await get_user_id(websocket)
     
-    if not await app.mem_agent.check_session_permissions(session_id, user_id):
+    if not session_id:
+        session_id = await app.mem_agent.create_session(user_id)
+    elif not await app.mem_agent.check_session_permissions(session_id, user_id):
         logging.warning(f"Permission denied for user {user_id} on session {session_id}")
         await websocket.send_text(f'<error>{{"message": "Permission denied for session {session_id}"}}</error>')
         await websocket.close()
@@ -158,6 +161,7 @@ async def websocket_messages_endpoint(websocket: WebSocket, session_id: str | No
             
     logging.debug("ws connection closed")
 
+@app.websocket("/agent/ws/autocomplete")
 @app.websocket("/agent/ws/autocomplete/{session_id}")
 async def websocket_autocomplete_endpoint(websocket: WebSocket, session_id: str | None = None):
     """
@@ -170,7 +174,7 @@ async def websocket_autocomplete_endpoint(websocket: WebSocket, session_id: str 
     
     user_id = await get_user_id(websocket)
     
-    if not await app.mem_agent.check_session_permissions(session_id, user_id):
+    if session_id and not await app.mem_agent.check_session_permissions(session_id, user_id):
         logging.warning(f"Permission denied for user {user_id} on session {session_id}")
         await websocket.send_text(f'<error>{{"message": "Permission denied for session {session_id}"}}</error>')
         await websocket.close()
@@ -210,9 +214,10 @@ async def websocket_autocomplete_endpoint(websocket: WebSocket, session_id: str 
                         context_prompt += f"{key}:{value};"
                     prompt += context_prompt
 
-                # augment prompt with recent agent replies seen on the messages websocket for this client host.
+                # Augment prompt with recent agent replies seen on the messages websocket for this client host.
                 last_messages = await app.mem_agent.fetch_messages(
                     session_id=session_id,
+                    user_id=user_id,
                     max_count=10,
                     role_filter=["agent", "mcp"],
                 )
@@ -275,12 +280,19 @@ async def websocket_autocomplete_endpoint(websocket: WebSocket, session_id: str 
                 logging.error(f"An error occurred on autocomplete request: {e}")
                 pass
 
+@app.get("/agent")
 @app.get("/agent/{session_id}")
-async def get(request: Request, session_id: str):
+async def get(request: Request, session_id: str | None = None):
     """Serves the main HTML page for the chat client."""
+
     with open("index.html") as f:
         html_content = f.read()
-        modified_html = html_content.replace("{{ url }}", request.url.hostname).replace("{{ session_id }}", session_id)
+        modified_html = html_content.replace("{{ url }}", request.url.hostname)
+
+        if session_id:
+            modified_html = modified_html.replace("{{ session_id }}", session_id)
+        else:
+            modified_html = modified_html.replace("/{{ session_id }}", "")
 
     return HTMLResponse(modified_html)
 
@@ -425,6 +437,7 @@ async def get_user_id(websocket: WebSocket) -> str:
                 return user_id
     except Exception as e:
         logging.error("user API call failed: %s", e)
+        raise
 
     return None
 

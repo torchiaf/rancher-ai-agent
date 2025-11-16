@@ -2,6 +2,7 @@ from clients import RedisClient, MySQLClient
 
 """
 MemoryAgent
+
  - Provides an interface for storing and retrieving conversation history using a cache.
  - Provides a DB interface for session information retrieval.
 """
@@ -27,10 +28,18 @@ class MemoryAgent:
             role=role
         )
 
-    async def fetch_messages(self, session_id: str, max_count: int = 10, role_filter: list[str] | None = None) -> list[str]:
-        return await self.cache_client.fetch_messages(session_id, max_count, role_filter)
+    async def fetch_messages(self, session_id: str, user_id: str, max_count: int = 10, role_filter: list[str] | None = None) -> list[str]:
+        return await self.cache_client.fetch_messages(session_id, user_id, max_count, role_filter)
+
+    async def create_session(self, user_id: str):
+        return await self.cache_client.create_session(user_id)
 
     async def get_session_info(self, session_id: str, user_id: str) -> dict | None:
+        # Try to get session info from cache first
+        cached_sessions = await self.cache_client.fetch_sessions(user_id)
+        if cached_sessions and session_id in [s["session_id"] for s in cached_sessions]:
+            return cached_sessions[0]
+
         return await self.db_client.get_session_info(session_id, user_id)
 
     async def check_session_permissions(self, session_id: str, user_id: str) -> bool:

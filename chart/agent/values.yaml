@@ -1,7 +1,7 @@
 aiAgent:
   image:
     repository: ghcr.io/torchiaf/rancher-ai-agent
-    tag: v1.0.19
+    tag: v1.0.20
     pullPolicy: Always
 mcp:
   image:
@@ -68,12 +68,14 @@ db:
   supervisor:
     image:
       repository: ghcr.io/torchiaf/rancher-ai-db
-      tag: v1.0.3
+      tag: v1.0.4
       pullPolicy: IfNotPresent
     redis:
       channel:
         message: "channel:history:s-*:r-*"
         session: "channel:sessions:u-*"
+    agent:
+      summaryUrl: "wss://rancher-ai-agent:80/agent/ws/summary"
 chat:
   replicaCount: 1
 

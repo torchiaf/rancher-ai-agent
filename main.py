@@ -474,17 +474,20 @@ def get_ws_connection_params(websocket: WebSocket) -> dict:
         "headers": {
             "R_token": rancher_token,
             "R_url": rancher_url
-        }   
+        }
     }
 
 async def get_user_id(websocket: WebSocket) -> str:
     cookies = websocket.cookies
 
-    try:
-        rancher_token = str(cookies.get("R_SESS"))
+    rancher_url = "https://"+websocket.url.hostname
+    if websocket.url.port:
+        rancher_url += ":"+str(websocket.url.port)
+    rancher_token = str(cookies.get("R_SESS"))
 
+    try:
         async with httpx.AsyncClient(timeout=5.0, verify=False) as client:
-            resp = await client.get("https://172.17.0.1/v3/users?me=true", headers={
+            resp = await client.get(f"{rancher_url}/v3/users?me=true", headers={
                 "Cookie": f"R_SESS={rancher_token}",
             })
             payload = resp.json() 

@@ -611,7 +611,7 @@ def get_system_prompt(type: RequestType) -> str:
 
 ### Summary Focus
 * Focus on user requests FIRST. The summary should reflect what the user asked for.
-* The summary should capture the essence of requests, not what the agent replied to.
+* The summary should capture the essence of requests, not what the agent replied.
   For example:
     * The user asked for "How is the weather in Florence?"
         * Good summary: "Weather in Florence"

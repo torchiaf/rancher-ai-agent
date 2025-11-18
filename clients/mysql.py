@@ -28,16 +28,16 @@ class MySQLClient:
             if conn:
                 conn.close()
 
-    async def get_session_info(self, session_id: str, user_id: str) -> dict | None:
+    async def get_chat_info(self, chat_id: str, user_id: str) -> dict | None:
         """
-        Retrieves session information from the database.
+        Retrieves chat information from the database.
 
         Args:
-            session_id: The ID of the session to retrieve.
+            chat_id: The ID of the chat to retrieve.
         """
-        logging.debug(f"Retrieving session info for session_id={session_id}, user_id={user_id}")
+        logging.debug(f"Retrieving chat info for chat_id={chat_id}, user_id={user_id}")
 
-        if not session_id:
+        if not chat_id:
             return None
 
         conn = None
@@ -45,18 +45,18 @@ class MySQLClient:
             conn = pymysql.connect(host=self.host, port=self.port, user=self.user, password=self.password, database=self.database)
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT id, session_id, user_id, active, created_at "
-                    "FROM sessions "
-                    "WHERE session_id=%s AND user_id=%s",
-                    (session_id, user_id)
+                    "SELECT id, chat_id, user_id, active, created_at "
+                    "FROM chats "
+                    "WHERE chat_id=%s AND user_id=%s",
+                    (chat_id, user_id)
                 )
                 result = cur.fetchone()
-                
-                logging.debug(f"Retrieved session info for {session_id}: {result}")
-                
+
+                logging.debug(f"Retrieved chat info for {chat_id}: {result}")
+
                 return result
         except Exception as e:
-            logging.warning(f"Failed to retrieve session info for {session_id}: {e}")
+            logging.warning(f"Failed to retrieve chat info for {chat_id}: {e}")
             return None
         finally:
             if conn:

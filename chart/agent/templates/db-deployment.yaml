@@ -63,10 +63,6 @@ spec:
               value: "{{ .Values.db.mysql.database }}"
             - name: REDIS_HOST
               value: rancher-ai-redis
-            - name: REDIS_MESSAGE_CHANNEL
-              value: "{{ .Values.db.supervisor.redis.channel.message }}"
-            - name: REDIS_SESSION_CHANNEL
-              value: "{{ .Values.db.supervisor.redis.channel.session }}"
             - name: AGENT_WS_SUMMARY_URL
               value: "{{ .Values.db.supervisor.agent.summaryUrl }}"
             - name: LOG_LEVEL

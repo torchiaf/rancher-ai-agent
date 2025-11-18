@@ -65,7 +65,7 @@ async def lifespan(app: FastAPI):
             )
 
         """
-        Maps session IDs to their active autocomplete tasks.
+        Maps chat IDs to their active autocomplete tasks.
         
         active_autocomplete_tasks: dict[str, asyncio.Task]
         """
@@ -82,8 +82,8 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 @app.websocket("/agent/ws/messages")
-@app.websocket("/agent/ws/messages/{session_id}")
-async def websocket_messages_endpoint(websocket: WebSocket, session_id: str | None = None):
+@app.websocket("/agent/ws/messages/{chat_id}")
+async def websocket_messages_endpoint(websocket: WebSocket, chat_id: str | None = None):
     """
     WebSocket endpoint for the conversation messages.
 
@@ -93,18 +93,18 @@ async def websocket_messages_endpoint(websocket: WebSocket, session_id: str | No
     await websocket.accept()
     
     user_id = await get_user_id(websocket)
-    
-    if not session_id:
-        session_id = await app.mem_agent.create_session(user_id)
-    elif not await app.mem_agent.check_session_permissions(session_id, user_id):
-        logging.warning(f"Permission denied for user {user_id} on session {session_id}")
-        await websocket.send_text(f'<error>{{"message": "Permission denied for session {session_id}"}}</error>')
+
+    if not chat_id:
+        chat_id = await app.mem_agent.create_chat(user_id)
+    elif not await app.mem_agent.check_chat_permissions(chat_id, user_id):
+        logging.warning(f"Permission denied for user {user_id} on chat {chat_id}")
+        await websocket.send_text(f'<error>{{"message": "Permission denied for chat {chat_id}"}}</error>')
         await websocket.close()
         return
         
     connection_params = get_ws_connection_params(websocket)
 
-    logging.info(f"ws/messages connection opened - session_id={session_id}")
+    logging.info(f"ws/messages connection opened - chat_id={chat_id}")
 
     async with streamablehttp_client(**connection_params) as (read, write, _):
         # This will create one mcp connection for each websocket connection. This is needed because we need to pass the rancher token in the header.
@@ -131,8 +131,8 @@ async def websocket_messages_endpoint(websocket: WebSocket, session_id: str | No
                     request = await websocket.receive_text()
 
                     prompt, context, request_id = _parse_websocket_request(request)
-                    
-                    await app.mem_agent.store_chunk(session_id=session_id, request_id=request_id, text=prompt, role="user")
+
+                    await app.mem_agent.store_chunk(chat_id=chat_id, request_id=request_id, text=prompt, role="user")
 
                     if context:
                         context_prompt = ". Use the following parameters to populate tool calls when appropriate. \n Only include parameters relevant to the user’s request (e.g., omit namespace for cluster-wide operations). \n Parameters (separated by ;): \n "
@@ -144,7 +144,7 @@ async def websocket_messages_endpoint(websocket: WebSocket, session_id: str | No
                         agent=agent,
                         input_data={"messages": [{"role": "user", "content": prompt}]},
                         config=config,
-                        session_id=session_id,
+                        chat_id=chat_id,
                         request_id=request_id,
                         websocket=websocket)
                 except WebSocketDisconnect:
@@ -163,8 +163,8 @@ async def websocket_messages_endpoint(websocket: WebSocket, session_id: str | No
     logging.debug("ws connection closed")
 
 @app.websocket("/agent/ws/autocomplete")
-@app.websocket("/agent/ws/autocomplete/{session_id}")
-async def websocket_autocomplete_endpoint(websocket: WebSocket, session_id: str | None = None):
+@app.websocket("/agent/ws/autocomplete/{chat_id}")
+async def websocket_autocomplete_endpoint(websocket: WebSocket, chat_id: str | None = None):
     """
     WebSocket endpoint for the autocomplete messages.
     
@@ -174,16 +174,16 @@ async def websocket_autocomplete_endpoint(websocket: WebSocket, session_id: str 
     await websocket.accept()
     
     user_id = await get_user_id(websocket)
-    
-    if session_id and not await app.mem_agent.check_session_permissions(session_id, user_id):
-        logging.warning(f"Permission denied for user {user_id} on session {session_id}")
-        await websocket.send_text(f'<error>{{"message": "Permission denied for session {session_id}"}}</error>')
+
+    if chat_id and not await app.mem_agent.check_chat_permissions(chat_id, user_id):
+        logging.warning(f"Permission denied for user {user_id} on chat {chat_id}")
+        await websocket.send_text(f'<error>{{"message": "Permission denied for chat {chat_id}"}}</error>')
         await websocket.close()
         return
 
     connection_params = get_ws_connection_params(websocket)
 
-    logging.info(f"ws/autocomplete connection opened - session_id={session_id}")
+    logging.info(f"ws/autocomplete connection opened - chat_id={chat_id}")
 
     async with streamablehttp_client(**connection_params):
         thread_id = str(uuid.uuid4())
@@ -217,7 +217,7 @@ async def websocket_autocomplete_endpoint(websocket: WebSocket, session_id: str 
 
                 # Augment prompt with recent agent replies seen on the messages websocket for this client host.
                 last_messages = await app.mem_agent.fetch_messages(
-                    session_id=session_id,
+                    chat_id=chat_id,
                     user_id=user_id,
                     max_count=10,
                     role_filter=["agent", "mcp"],
@@ -227,8 +227,8 @@ async def websocket_autocomplete_endpoint(websocket: WebSocket, session_id: str 
                 if len(last_messages) > 0:
                     prompt = f"Use the following recent agent replies as candidates for completion:\n  {'\n  ----------\n  '.join(list(reversed(last_messages)))}\n  ----------\n\n{prompt}"
 
-                # Cancel any previous running autocomplete task for this session
-                prev_entry = app.active_autocomplete_tasks.get(session_id)
+                # Cancel any previous running autocomplete task for this chat
+                prev_entry = app.active_autocomplete_tasks.get(chat_id)
                 # Normalize prev task and finished_event if stored as dict or bare task
                 prev_task = None
                 prev_finished = None
@@ -273,7 +273,7 @@ async def websocket_autocomplete_endpoint(websocket: WebSocket, session_id: str 
                     send_opening_tag=False,
                 ))
 
-                app.active_autocomplete_tasks[session_id] = {"task": task, "renew": None, "finished_event": finished_event}
+                app.active_autocomplete_tasks[chat_id] = {"task": task, "renew": None, "finished_event": finished_event}
             except WebSocketDisconnect:
                 logging.info(f"Client {websocket.client.host} disconnected.")
                 break
@@ -341,18 +341,18 @@ async def websocket_summary_endpoint(websocket: WebSocket):
                     await websocket.send_text("</message>")
 
 @app.get("/agent")
-@app.get("/agent/{session_id}")
-async def get(request: Request, session_id: str | None = None):
+@app.get("/agent/{chat_id}")
+async def get(request: Request, chat_id: str | None = None):
     """Serves the main HTML page for the chat client."""
 
     with open("index.html") as f:
         html_content = f.read()
         modified_html = html_content.replace("{{ url }}", request.url.hostname)
 
-        if session_id:
-            modified_html = modified_html.replace("{{ session_id }}", session_id)
+        if chat_id:
+            modified_html = modified_html.replace("{{ chat_id }}", chat_id)
         else:
-            modified_html = modified_html.replace("/{{ session_id }}", "")
+            modified_html = modified_html.replace("/{{ chat_id }}", "")
 
     return HTMLResponse(modified_html)
 
@@ -360,7 +360,7 @@ async def stream_messages_agent_response(
     agent: CompiledStateGraph,
     input_data: dict[str, list[dict[str, str]]],
     config: dict,
-    session_id: str,
+    chat_id: str,
     request_id: str,
     websocket: WebSocket,
 ) -> None:
@@ -387,7 +387,7 @@ async def stream_messages_agent_response(
                 text = _extract_text_from_chunk_content(chunk.content)
                 await websocket.send_text(text)
                 # store recent agent replies
-                await app.mem_agent.store_chunk(session_id, request_id, text=text, role="agent")
+                await app.mem_agent.store_chunk(chat_id, request_id, text=text, role="agent")
 
         if event == "updates":
             if interrupt_value := data.get("__interrupt__"):
@@ -403,7 +403,7 @@ async def stream_messages_agent_response(
         if event == "custom":
             await websocket.send_text(data)
             # store recent mcp replies
-            await app.mem_agent.store_chunk(session_id, request_id, text=data, role="mcp")
+            await app.mem_agent.store_chunk(chat_id, request_id, text=data, role="mcp")
 
 async def stream_autocomplete_agent_response(
     agent: CompiledStateGraph,
@@ -609,11 +609,20 @@ def get_system_prompt(type: RequestType) -> str:
 
 ## CORE DIRECTIVES
 
+### Summary Focus
+* Focus on user requests FIRST. The summary should reflect what the user asked for.
+* The summary should capture the essence of requests, not what the agent replied to.
+  For example:
+    * The user asked for "How is the weather in Florence?"
+        * Good summary: "Weather in Florence"
+        * Bad summary: "Can't answer weather questions"
+
 ### Conciseness
 * The summary MUST BE MAX 30 characters.
 * Summarize the content in a brief manner, highlighting only the most important aspects.
 * Avoid unnecessary details or lengthy explanations.
 * DO NOT include question marks or suggestions in the summary.
+* DO NOT include periods at the end of the summary.
 """
 
         case RequestType.MESSAGE:

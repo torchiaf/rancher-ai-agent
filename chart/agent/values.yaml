@@ -1,7 +1,7 @@
 aiAgent:
   image:
     repository: ghcr.io/torchiaf/rancher-ai-agent
-    tag: v1.0.23
+    tag: v1.0.24
     pullPolicy: Always
 mcp:
   image:

@@ -602,7 +602,8 @@ def get_system_prompt(type: RequestType) -> str:
 * The completions will be used by the user to ask YOU some requests in natural language.
 * Remember to keep the user's intent in mind when generating completions.
     * Good: "Give me the logs for the failing pod-{some-id}" - this is an acceptable completion because it addresses the User's intent.
-    * Bad: "How can I help you?" - this is not an acceptable completion because the User's intent is not being addressed.
+    * Bad: "How can I help you?" - this is not an acceptable completion because it's a question that is from Agent side of context.
+    * Bad: "What type of resources are you interested in?" - this is not an acceptable completion because it's a question that is from Agent side of context.
 
 ### Natural language Mentality
 * The completions should be in natural language, as the user would express it.
@@ -624,6 +625,8 @@ def get_system_prompt(type: RequestType) -> str:
 * The summary MUST BE MAX 40 characters.
 * Summarize the content in a brief manner, highlighting only the most important aspects.
 * Avoid unnecessary details or lengthy explanations.
+
+### Consistency
 * DO NOT include greetings or pleasantries in the summary.
 * DO NOT include tags like <message> or any other keywords between < and >.
 * DO NOT include question marks or suggestions in the summary.

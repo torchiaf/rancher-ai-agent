@@ -603,9 +603,16 @@ def get_system_prompt(type: RequestType) -> str:
 
 ### User perspective
 * Remember to keep the user's intent in mind when generating completions.
-    * Good: "Give me the logs for the failing pod-{some-id}" - this is an acceptable completion because it addresses the User's intent.
-    * Bad: "How can I help you?" - this is not an acceptable completion because it's a question that is from Agent side of context.
-    * Bad: "What type of resources are you interested in?" - this is not an acceptable completion because it's a question that is from Agent side of context.
+  For example:
+    * User unfinished input: "Give me the logs for the failing p"
+        * Good completion: "od-{some-id} in local cluster" - this is an acceptable completion because it addresses the User's intent.
+        * Bad completion: "od. Sure, I can help with that." - this is not an acceptable completion because it does not continue the user's unfinished input. It contains instead a response from the Agent side of context.
+    * User unfinished input: "How can I"
+        * Good completion: " check the pod {some-id} status?" - this is an acceptable completion because it continues the user's unfinished input.
+        * Bad completion: "help you?" - this is not an acceptable completion because it's a question that is from Agent side of context.
+    * User unfinished input: "What type of resou"
+        * Good completion: "rce are is {some-id}?" - this is an acceptable completion because it continues the user's unfinished input.
+        * Bad completion: "rces are you interested in?" - this is not an acceptable completion because it's a question that is from Agent side of context.
 
 ### Consistency
 * If the user's unfinished input is already a complete phrase or question, do not provide a suggestion, return empty string.

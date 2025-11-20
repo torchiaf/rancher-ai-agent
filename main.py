@@ -223,7 +223,7 @@ async def websocket_autocomplete_endpoint(websocket: WebSocket, chat_id: str | N
                     role_filter=["agent", "mcp"],
                 )
                 
-                prompt = f"User input: {prompt}"
+                prompt = f"User unfinished input: {prompt}"
                 if len(last_messages) > 0:
                     prompt = f"Use the following recent agent replies as candidates for completion:\n  {'\n  ----------\n  '.join(list(reversed(last_messages)))}\n  ----------\n\n{prompt}"
 
@@ -587,26 +587,25 @@ def get_system_prompt(type: RequestType) -> str:
 
     match type:
         case RequestType.AUTOCOMPLETE:
-            return """You are an expert, context-aware autocomplete engine. Complete the user's unfinished phrase naturally and concisely. Do not add any introductory text, explanations, or formatting. Only output the direct continuation of the user's text. Your response will be used to help the user complete their input in a Rancher UI context.
+            return """Complete the user's unfinished input, naturally and concisely. Do not add any introductory text, explanations, or formatting. Only output the direct continuation of the user's text. Your response will be concatenated with the user's input in the Chat prompt, so that it forms a complete request to be sent by the user to the AI agent later.
 
 ## CORE DIRECTIVES
 
 ### Context Awareness
 * Always consider the user's current context when defined (cluster, namespace, or resource being viewed) to build completions.
 * Use the provided previous messages from the conversation to build your completions. First messages are most relevant.
-* Always consider your previous completion replies to build your next completions.
-    * Good: If previous completions mentioned "pod-{some-id}", use that in the next completion and build around it, for example extending the completion like "pod-{some-id} in namespace {namespace}".
-    * Bad: Ignore previous completions and start a new completion unrelated to them, for example if the user previously mentioned "pod-{some-id}" but you respond with "pod-{some-id} What can I do for you today?".
+* Always consider the user unfinished input to build completions.
+    * Good: If the unfinished input mentioned "pod-{some-id}", use that in the completion and build around it, for example like " in namespace {namespace}".
+    * Bad: Ignore unfinished input and start the completion unrelated to them, for example if the user unfinished input mentioned "pod-{some-id}" but you respond with "What can I do for you today?".
 
 ### User perspective
-* The completions will be used by the user to ask YOU some requests in natural language.
 * Remember to keep the user's intent in mind when generating completions.
     * Good: "Give me the logs for the failing pod-{some-id}" - this is an acceptable completion because it addresses the User's intent.
     * Bad: "How can I help you?" - this is not an acceptable completion because it's a question that is from Agent side of context.
     * Bad: "What type of resources are you interested in?" - this is not an acceptable completion because it's a question that is from Agent side of context.
 
 ### Consistency
-* If the user's input is already a complete phrase or question, do not provide a suggestion, return empty string.
+* If the user's unfinished input is already a complete phrase or question, do not provide a suggestion, return empty string.
   For example:
     * User input: "Show me the logs for pod-{some-id}"
         * Good completion: ""

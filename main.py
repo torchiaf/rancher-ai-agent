@@ -209,8 +209,10 @@ async def websocket_autocomplete_endpoint(websocket: WebSocket, chat_id: str | N
 
                 prompt, context, request_id = _parse_websocket_request(request)
 
+                prompt = f"User unfinished input: '{prompt}'"
+
                 if context:
-                    context_prompt = ". Use the following parameters as source strings to create completion. \n Parameters (separated by ;): \n "
+                    context_prompt = "\n Use the following parameters as values source to create completions. \n Parameters (separated by ;): \n "
                     for key, value in context.items():
                         context_prompt += f"{key}:{value};"
                     prompt += context_prompt
@@ -222,10 +224,11 @@ async def websocket_autocomplete_endpoint(websocket: WebSocket, chat_id: str | N
                     max_count=10,
                     role_filter=["agent", "mcp"],
                 )
-                
-                prompt = f"User unfinished input: {prompt}"
+
                 if len(last_messages) > 0:
-                    prompt = f"Use the following recent agent replies as candidates for completion:\n  {'\n  ----------\n  '.join(list(reversed(last_messages)))}\n  ----------\n\n{prompt}"
+                    prompt += f"\n Use the following recent agent replies as values source to create completions:\n  {'\n  ----------\n  '.join(list(reversed(last_messages)))}\n  ----------"
+                
+                logging.debug(f"Autocomplete prompt: {prompt}")
 
                 # Cancel any previous running autocomplete task for this chat
                 prev_entry = app.active_autocomplete_tasks.get(chat_id)
@@ -638,7 +641,7 @@ def get_system_prompt(type: RequestType) -> str:
 
 ### Consistency
 * DO NOT include greetings or pleasantries in the summary.
-* DO NOT include tags like <message> or any other keywords between < and >.
+* DO NOT include tags like <message>, </message> or any other keywords between < and >.
 * DO NOT include question marks or suggestions in the summary.
 * DO NOT include periods at the end of the summary.
 """

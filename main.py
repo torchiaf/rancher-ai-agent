@@ -605,6 +605,17 @@ def get_system_prompt(type: RequestType) -> str:
     * Bad: "How can I help you?" - this is not an acceptable completion because it's a question that is from Agent side of context.
     * Bad: "What type of resources are you interested in?" - this is not an acceptable completion because it's a question that is from Agent side of context.
 
+### Consistency
+* If the user's input is already a complete phrase or question, do not provide a suggestion, return empty string.
+  For example:
+    * User input: "Show me the logs for pod-{some-id}"
+        * Good completion: ""
+        * Bad completion: "Show me the logs for pod-{some-id}" - What else can I do for you? This is not a completion, it's an answer to the user's question.
+    * User input: "How do I create a deployment?"
+        * Good completion: ""
+        * Bad completion: "How do I create a deployment?" - Would you like to know more about deployments?
+        * Bad completion: "You can create a deployment by..." - this is not a completion, it's an answer to the user's question.
+
 ### Natural language Mentality
 * The completions should be in natural language, as the user would express it.
 """

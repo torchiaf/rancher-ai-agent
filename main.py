@@ -210,7 +210,7 @@ async def websocket_autocomplete_endpoint(websocket: WebSocket, chat_id: str | N
                 prompt, context, request_id = _parse_websocket_request(request)
 
                 if context:
-                    context_prompt = ". Use the following parameters to populate tool calls when appropriate. \n Only include parameters relevant to the user’s request (e.g., omit namespace for cluster-wide operations). \n Parameters (separated by ;): \n "
+                    context_prompt = ". Use the following parameters as source strings to create completion. \n Parameters (separated by ;): \n "
                     for key, value in context.items():
                         context_prompt += f"{key}:{value};"
                     prompt += context_prompt
@@ -592,8 +592,11 @@ def get_system_prompt(type: RequestType) -> str:
 ## CORE DIRECTIVES
 
 ### Context Awareness
-* Always consider the user's current context when defined (cluster, project, or resource being viewed).
+* Always consider the user's current context when defined (cluster, namespace, or resource being viewed) to build completions.
 * Use the provided previous messages from the conversation to build your completions. First messages are most relevant.
+* Always consider your previous completion replies to build your next completions.
+    * Good: If previous completions mentioned "pod-{some-id}", use that in the next completion and build around it, for example extending the completion like "pod-{some-id} in namespace {namespace}".
+    * Bad: Ignore previous completions and start a new completion unrelated to them, for example if the user previously mentioned "pod-{some-id}" but you respond with "pod-{some-id} What can I do for you today?".
 
 ### User perspective
 * The completions will be used by the user to ask YOU some requests in natural language.
@@ -618,9 +621,11 @@ def get_system_prompt(type: RequestType) -> str:
         * Bad summary: "Can't answer weather questions"
 
 ### Conciseness
-* The summary MUST BE MAX 30 characters.
+* The summary MUST BE MAX 40 characters.
 * Summarize the content in a brief manner, highlighting only the most important aspects.
 * Avoid unnecessary details or lengthy explanations.
+* DO NOT include greetings or pleasantries in the summary.
+* DO NOT include tags like <message> or any other keywords between < and >.
 * DO NOT include question marks or suggestions in the summary.
 * DO NOT include periods at the end of the summary.
 """

@@ -65,7 +65,7 @@ async def lifespan(app: FastAPI):
             )
 
         """
-        Maps chat IDs to their active autocomplete tasks.
+        Maps user IDs to their active autocomplete tasks.
         
         active_autocomplete_tasks: dict[str, asyncio.Task]
         """
@@ -130,7 +130,7 @@ async def websocket_messages_endpoint(websocket: WebSocket, chat_id: str | None 
                 try:
                     request = await websocket.receive_text()
 
-                    prompt, context, request_id = _parse_websocket_request(request)
+                    prompt, context, chat_payload, request_id = _parse_websocket_request(request)
 
                     await app.mem_agent.store_chunk(chat_id=chat_id, request_id=request_id, text=prompt, role="user")
 
@@ -163,8 +163,7 @@ async def websocket_messages_endpoint(websocket: WebSocket, chat_id: str | None 
     logging.debug("ws connection closed")
 
 @app.websocket("/agent/ws/autocomplete")
-@app.websocket("/agent/ws/autocomplete/{chat_id}")
-async def websocket_autocomplete_endpoint(websocket: WebSocket, chat_id: str | None = None):
+async def websocket_autocomplete_endpoint(websocket: WebSocket):
     """
     WebSocket endpoint for the autocomplete messages.
     
@@ -175,15 +174,9 @@ async def websocket_autocomplete_endpoint(websocket: WebSocket, chat_id: str | N
     
     user_id = await get_user_id(websocket)
 
-    if chat_id and not await app.mem_agent.check_chat_permissions(chat_id, user_id):
-        logging.warning(f"Permission denied for user {user_id} on chat {chat_id}")
-        await websocket.send_text(f'<error>{{"message": "Permission denied for chat {chat_id}"}}</error>')
-        await websocket.close()
-        return
-
     connection_params = get_ws_connection_params(websocket)
 
-    logging.info(f"ws/autocomplete connection opened - chat_id={chat_id}")
+    logging.info(f"ws/autocomplete connection opened")
 
     async with streamablehttp_client(**connection_params):
         thread_id = str(uuid.uuid4())
@@ -207,31 +200,29 @@ async def websocket_autocomplete_endpoint(websocket: WebSocket, chat_id: str | N
             try:
                 request = await websocket.receive_text()
 
-                prompt, context, request_id = _parse_websocket_request(request)
+                prompt, context, chat_payload, request_id = _parse_websocket_request(request)
 
                 prompt = f"User unfinished input: '{prompt}'"
 
                 if context:
-                    context_prompt = "\n Use the following parameters as values source to create completions. \n Parameters (separated by ;): \n "
+                    context_prompt = "\n\n Use the following parameters as source to create completions. Parameters (separated by ;): \n "
                     for key, value in context.items():
                         context_prompt += f"{key}:{value};"
                     prompt += context_prompt
 
-                # Augment prompt with recent agent replies seen on the messages websocket for this client host.
-                last_messages = await app.mem_agent.fetch_messages(
-                    chat_id=chat_id,
-                    user_id=user_id,
-                    max_count=10,
-                    role_filter=["agent", "mcp"],
-                )
+                if len(chat_payload) > 0:
+                    latestMessages = ""
+                    for msg in chat_payload:
+                        role = msg.get("role", "user")
+                        content = msg.get("content", "")
+                        latestMessages += f"\n [{role}]: '{content}'"
 
-                if len(last_messages) > 0:
-                    prompt += f"\n Use the following recent agent replies as values source to create completions:\n  {'\n  ----------\n  '.join(list(reversed(last_messages)))}\n  ----------"
+                    prompt += f"\n\n Use the following recent messages as source to create completions: \n---------- {latestMessages} \n----------\n"
                 
                 logging.debug(f"Autocomplete prompt: {prompt}")
 
-                # Cancel any previous running autocomplete task for this chat
-                prev_entry = app.active_autocomplete_tasks.get(chat_id)
+                # Cancel any previous running autocomplete task for this user
+                prev_entry = app.active_autocomplete_tasks.get(user_id)
                 # Normalize prev task and finished_event if stored as dict or bare task
                 prev_task = None
                 prev_finished = None
@@ -276,7 +267,7 @@ async def websocket_autocomplete_endpoint(websocket: WebSocket, chat_id: str | N
                     send_opening_tag=False,
                 ))
 
-                app.active_autocomplete_tasks[chat_id] = {"task": task, "renew": None, "finished_event": finished_event}
+                app.active_autocomplete_tasks[user_id] = {"task": task, "renew": None, "finished_event": finished_event}
             except WebSocketDisconnect:
                 logging.info(f"Client {websocket.client.host} disconnected.")
                 break
@@ -320,7 +311,7 @@ async def websocket_summary_endpoint(websocket: WebSocket):
             try:
                 request = await websocket.receive_text()
 
-                prompt, context, request_id = _parse_websocket_request(request)
+                prompt, context, chat_payload, request_id = _parse_websocket_request(request)
 
                 await websocket.send_text("<message>")
                 async for event, data in agent.astream(
@@ -736,7 +727,7 @@ def _extract_text_from_chunk_content(chunk_content: any) -> str:
     
     return str(chunk_content) if chunk_content is not None else ""
 
-def _parse_websocket_request(request: str) -> tuple[str, dict, str]:
+def _parse_websocket_request(request: str) -> tuple[str, dict, list[str], str]:
     """
     Parses the incoming websocket request.
 
@@ -751,10 +742,12 @@ def _parse_websocket_request(request: str) -> tuple[str, dict, str]:
     """
     try:
         json_request = json.loads(request)
+
         prompt = json_request.get("prompt", "")
         context = json_request.get("context", {})
+        chat_payload = json_request.get("chatPayload", [])
         request_id = str(uuid.uuid4())
 
-        return prompt, context, request_id
+        return prompt, context, chat_payload, request_id
     except json.JSONDecodeError:
-        return request, {}, None
+        return request, {}, [], None

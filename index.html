@@ -91,7 +91,7 @@
             };
 
             // Establish a WebSocket connection for autocomplete
-            const autoWs = new WebSocket("wss://{{ url }}/api/v1/namespaces/cattle-ai-agent-system/services/http:rancher-ai-agent:80/proxy/agent/ws/autocomplete/{{ chat_id }}");
+            const autoWs = new WebSocket("wss://{{ url }}/api/v1/namespaces/cattle-ai-agent-system/services/http:rancher-ai-agent:80/proxy/agent/ws/autocomplete");
 
             let currentAutoLi;
             autoWs.onopen = function() {
@@ -147,8 +147,7 @@
                     clearTimeout(autoTimer);
                     autoTimer = setTimeout(function(){
                         if (autoWs.readyState === WebSocket.OPEN) {
-                            const payload = { prompt: val, context: [] };
-                            autoWs.send(JSON.stringify(payload));
+                            autoWs.send(val);
                         }
                     }, AUTO_DEBOUNCE_MS);
                 });

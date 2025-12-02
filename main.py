@@ -130,7 +130,7 @@ async def websocket_messages_endpoint(websocket: WebSocket, chat_id: str | None 
                 try:
                     request = await websocket.receive_text()
 
-                    prompt, context, chat_payload, request_id = _parse_websocket_request(request)
+                    prompt, context, chat_payload, wildcard, request_id = _parse_websocket_request(request)
 
                     await app.mem_agent.store_chunk(chat_id=chat_id, request_id=request_id, text=prompt, role="user")
 
@@ -313,7 +313,7 @@ async def websocket_summary_endpoint(websocket: WebSocket):
             try:
                 request = await websocket.receive_text()
 
-                prompt, context, chat_payload, request_id = _parse_websocket_request(request)
+                prompt, context, chat_payload, wildcard, request_id = _parse_websocket_request(request)
 
                 await websocket.send_text("<message>")
                 async for event, data in agent.astream(

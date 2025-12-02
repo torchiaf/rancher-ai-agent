@@ -200,12 +200,12 @@ async def websocket_autocomplete_endpoint(websocket: WebSocket):
             try:
                 request = await websocket.receive_text()
 
-                prompt, context, chat_payload, request_id = _parse_websocket_request(request)
+                prompt, context, chat_payload, wildcard, request_id = _parse_websocket_request(request)
 
                 prompt = f"User unfinished input: '{prompt}'"
 
                 if context:
-                    context_prompt = "\n\n Use the following parameters as source to create completions. Parameters (separated by ;): \n "
+                    context_prompt = "\n\nContext parameters: use the following parameters as source to create completions. Parameters (separated by ;): \n "
                     for key, value in context.items():
                         context_prompt += f"{key}:{value};"
                     prompt += context_prompt
@@ -217,7 +217,9 @@ async def websocket_autocomplete_endpoint(websocket: WebSocket):
                         content = msg.get("content", "")
                         latestMessages += f"\n [{role}]: '{content}'"
 
-                    prompt += f"\n\n Use the following recent messages as source to create completions: \n---------- {latestMessages} \n----------\n"
+                    prompt += f"\n\nRecent messages: use the following recent messages as source to create completions: \n---------- {latestMessages} \n----------\n"
+                
+                prompt += f"\n\nWildcard: {wildcard}\n"
                 
                 logging.debug(f"Autocomplete prompt: {prompt}")
 
@@ -581,13 +583,21 @@ def get_system_prompt(type: RequestType) -> str:
 
     match type:
         case RequestType.AUTOCOMPLETE:
-            return """Complete the user's unfinished input, naturally and concisely. Do not add any introductory text, explanations, or formatting. Only output the direct continuation of the user's text. Your response will be concatenated with the user's input in the Chat prompt, so that it forms a complete request to be sent by the user to the AI agent later.
+            return """
+The autocomplete request contains 4 parts:
+    1. User unfinished input: The partial input provided by the user that needs to be completed.
+    2. Context parameters: Key-value pairs that provide context about the current environment (e.g., cluster, namespace, resources).
+    3. Recent messages: A list of recent messages exchanged in the conversation
+    4. Wildcard: A special character or string that may influence the completion behavior.
+
+IF the Wildcard field is equal to '@', output ONLY with a list of 1 up to 20 <item></item> tags containing resource names or identifiers, relevant to the user unfinished input, that are included in the context or recent messages (cluster, namespace, resources).
+ELSE Complete the user unfinished input, naturally and concisely. Do not add any introductory text, explanations, wildcards like '@' or '#', or formatting. Only output the direct continuation of the user's text. Your response will be concatenated with the user's input in the Chat prompt, so that it forms a complete request to be sent by the user to the AI agent later.
 
 ## CORE DIRECTIVES
 
 ### Context Awareness
 * Always consider the user's current context when defined (cluster, namespace, or resource being viewed) to build completions.
-* Use the provided previous messages from the conversation to build your completions. First messages are most relevant.
+* Use the provided recent messages from the conversation to build your completions. First messages are most relevant.
 * Always consider the user unfinished input to build completions.
     * Good: If the unfinished input mentioned "pod-{some-id}", use that in the completion and build around it, for example like " in namespace {namespace}".
     * Bad: Ignore unfinished input and start the completion unrelated to them, for example if the user unfinished input mentioned "pod-{some-id}" but you respond with "What can I do for you today?".
@@ -597,16 +607,16 @@ def get_system_prompt(type: RequestType) -> str:
   For example:
     * User unfinished input: "Give me the logs for the failing p"
         * Good completion: "od-{some-id} in local cluster" - this is an acceptable completion because it addresses the User's intent.
-        * Bad completion: "od. Sure, I can help with that." - this is not an acceptable completion because it does not continue the user's unfinished input. It contains instead a response from the Agent side of context.
+        * Bad completion: "od. Sure, I can help with that." - this is not an acceptable completion because it does not continue the user unfinished input. It contains instead a response from the Agent side of context.
     * User unfinished input: "How can I"
-        * Good completion: " check the pod {some-id} status?" - this is an acceptable completion because it continues the user's unfinished input.
+        * Good completion: " check the pod {some-id} status?" - this is an acceptable completion because it continues the user unfinished input.
         * Bad completion: "help you?" - this is not an acceptable completion because it's a question that is from Agent side of context.
     * User unfinished input: "What type of resou"
-        * Good completion: "rce are is {some-id}?" - this is an acceptable completion because it continues the user's unfinished input.
+        * Good completion: "rce are is {some-id}?" - this is an acceptable completion because it continues the user unfinished input.
         * Bad completion: "rces are you interested in?" - this is not an acceptable completion because it's a question that is from Agent side of context.
 
 ### Consistency
-* If the user's unfinished input is already a complete phrase or question, do not provide a suggestion, return empty string.
+* If the user unfinished input is already a complete phrase or question, do not provide a suggestion, return empty string.
   For example:
     * User input: "Show me the logs for pod-{some-id}"
         * Good completion: ""
@@ -618,6 +628,16 @@ def get_system_prompt(type: RequestType) -> str:
 
 ### Natural language Mentality
 * The completions should be in natural language, as the user would express it.
+
+### <item></item> tags
+* Each <item> tag must contain a single resource name or identifier that are included in autocompletion request (context or recent messages).
+* The <item> payload should be:
+  {
+    "name": "resource-name",
+    "type": "resource-type" // e.g., pod, deployment, service, namespace, cluster
+  }
+  The list of items can be, for instance:
+    <item>{"name": "pod-1", "type": "pod"}</item><item>{"name": "pod-2", "type": "pod"}</item><item>{"name": "namespace-1", "type": "namespace"}</item>
 """
         case RequestType.SUMMARY:
             return """Each message is a list of recent agent replies to the user. Your task is to generate a concise summary of these replies, focusing on key points and relevant information. Your response will be used to assign a title to a Chat.
@@ -727,7 +747,7 @@ def _extract_text_from_chunk_content(chunk_content: any) -> str:
     
     return str(chunk_content) if chunk_content is not None else ""
 
-def _parse_websocket_request(request: str) -> tuple[str, dict, list[str], str]:
+def _parse_websocket_request(request: str) -> tuple[str, dict, list[str], str, str]:
     """
     Parses the incoming websocket request.
 
@@ -746,8 +766,9 @@ def _parse_websocket_request(request: str) -> tuple[str, dict, list[str], str]:
         prompt = json_request.get("prompt", "")
         context = json_request.get("context", {})
         chat_payload = json_request.get("chatPayload", [])
+        wildcard = json_request.get("wildcard", "")
         request_id = str(uuid.uuid4())
 
-        return prompt, context, chat_payload, request_id
+        return prompt, context, chat_payload, wildcard, request_id
     except json.JSONDecodeError:
-        return request, {}, [], None
+        return request, {}, [], "", None

@@ -625,6 +625,11 @@ ELSE Complete the user unfinished input, naturally and concisely. Do not add any
         * Good completion: ""
         * Bad completion: "How do I create a deployment?" - Would you like to know more about deployments?
         * Bad completion: "You can create a deployment by..." - this is not a completion, it's an answer to the user's question.
+* If the user unfinished input needs a completion in the middle of a sentence, provide the completion only for the missing part.
+  For example:
+    * User unfinished input: "Show me the logs for p in namespace fleet-local"
+        * Good completion: "od-{some-id}"
+        * Bad completion: "pod-{some-id} in namespace fleet-local" - this repeats the prompt already provided by the user.
 
 ### Natural language Mentality
 * The completions should be in natural language, as the user would express it.

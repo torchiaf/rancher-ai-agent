@@ -626,35 +626,35 @@ ELSE
     * Keep in mind space and punctuation from the User unfinished input to ensure a seamless continuation.
     For example:
         * User unfinished input: "Give me the logs of"
-            * Good completion: " pod-{some-id} in namespace {namespace}"
-            * Bad completion: "pod-{some-id} in namespace {namespace}" - missing space at the beginning.
+            * Good completion: " pod-{some-example-id} in namespace {some-example-namespace}"
+            * Bad completion: "pod-{some-example-id} in namespace {some-example-namespace}" - missing space at the beginning.
 
     ### Context Awareness
     * Always consider the user's current context (User unfinished input, Context parameters) when defined (clusters, namespaces, or resources) to build completions.
     * Use also the provided Recent messages from the conversation to build your completions. First messages are most relevant.
     * Always consider the User unfinished input to build completions.
-        * Good: If the User unfinished input mentioned "pod-{some-id}", use that in the completion and build around it, for example like " in namespace {namespace}".
-        * Bad: Ignore the User unfinished input and start the completion unrelated to them, for example if the user unfinished input mentioned "pod-{some-id}" but you respond with "What can I do for you today?".
+        * Good: If the User unfinished input mentioned "pod-{some-example-id}", use that in the completion and build around it, for example like " in namespace {some-example-namespace}".
+        * Bad: Ignore the User unfinished input and start the completion unrelated to them, for example if the User unfinished input mentioned "pod-{some-example-id}" but you respond with "What can I do for you today?".
 
     ### User perspective
     * Remember to keep the user's intent in mind when generating completions. DO NOT return suggestions that are from the Agent side of context.
     For example:
         * User unfinished input: "Give me the logs for the failing p"
-            * Good completion: "od-{some-id} in local cluster" - this is an acceptable completion because it addresses the User's intent.
+            * Good completion: "od-{some-example-id} in local cluster" - this is an acceptable completion because it addresses the User's intent.
             * Bad completion: "od. Sure, I can help with that." - this is not an acceptable completion because it does not continue the User unfinished input. It contains instead a response from the Agent side of context.
         * User unfinished input: "How can I"
-            * Good completion: " check the pod {some-id} status?" - this is an acceptable completion because it continues the User unfinished input.
+            * Good completion: " check the pod-{some-example-id} status?" - this is an acceptable completion because it continues the User unfinished input.
             * Bad completion: " help you?" - this is not an acceptable completion because it's a question that is from Agent side of context.
         * User unfinished input: "What type of resou"
-            * Good completion: "rce are is {some-id}?" - this is an acceptable completion because it continues the User unfinished input.
+            * Good completion: "rce are is {some-example-id}?" - this is an acceptable completion because it continues the User unfinished input.
             * Bad completion: "rces are you interested in?" - this is not an acceptable completion because it's a question that is from Agent side of context.
 
     ### Consistency
     * If the User unfinished input is already a complete phrase or question, do not provide a suggestion, return empty string.
     For example:
-        * User input: "Show me the logs for pod-{some-id}"
+        * User input: "Show me the logs for pod-{some-example-id}"
             * Good completion: ""
-            * Bad completion: "Show me the logs for pod-{some-id}" - What else can I do for you? This is not a completion, it's an answer to the user's question.
+            * Bad completion: ". What else can I do for you? This is not a completion, it's an answer to a user's question that is completely out of context.
         * User input: "How do I create a deployment?"
             * Good completion: ""
             * Bad completion: "How do I create a deployment?" - Would you like to know more about deployments?
@@ -662,8 +662,8 @@ ELSE
     * If the User unfinished input needs a completion in the middle of a sentence, provide the completion only for the missing part.
     For example:
         * User unfinished input: "Show me the logs for p in namespace fleet-local"
-            * Good completion: "od-{some-id}"
-            * Bad completion: "pod-{some-id} in namespace fleet-local" - this repeats the prompt already provided by the user.
+            * Good completion: "od-{some-example-id}"
+            * Bad completion: "pod-{some-example-id} in namespace fleet-local" - this repeats the prompt already provided by the user.
 
     ### Natural language Mentality
     * The completions should be in natural language, as the user would express it.

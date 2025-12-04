@@ -590,66 +590,83 @@ The autocomplete request contains 4 parts:
     3. Recent messages: A list of recent messages exchanged in the conversation
     4. Wildcard: A special character or string that may influence the completion behavior.
 
-IF the Wildcard field is equal to '@', output ONLY with a list of 1 up to 20 <item></item> tags containing resource names or identifiers, relevant to the user unfinished input, that are included in the context or recent messages (cluster, namespace, resources).
-ELSE Complete the user unfinished input, naturally and concisely. Do not add any introductory text, explanations, wildcards like '@' or '#', or formatting. Only output the direct continuation of the user's text. Your response will be concatenated with the user's input in the Chat prompt, so that it forms a complete request to be sent by the user to the AI agent later.
+IF (the Wildcard field is equal to '@') THEN
+    Output ONLY a list of 1 up to 20 <item></item> tags containing resource names or identifiers, relevant to the User unfinished input, that are included in the context or recent messages (cluster, namespace, resources). Your response will be used to populate an autocompletion dropdown in the Chat prompt.
 
-## CORE DIRECTIVES
+    ## CORE DIRECTIVES
 
-### Syntax
-* Keep in mind space and punctuation from the user unfinished input to ensure a seamless continuation.
-  For example:
-    * User unfinished input: "Give me the logs of"
-        * Good completion: " pod-{some-id} in namespace {namespace}"
-        * Bad completion: "pod-{some-id} in namespace {namespace}" - missing space at the beginning.
+    ### Context Awareness
+    * Always consider the user's current context (User unfinished input, Context parameters, Recent messages) when defined (clusters, namespaces, or resources) to build the list.
+      For example:
+        * User unfinished input: "Give me the logs of rancher-", Recent messages or Context parameters contain pod "rancher-xyz"
+            * Good item: <item>{"name": "rancher-xyz", "type": "pod"}</item>
+            * Bad item: <item>{"name": "rancher-abc", "type": "pod"}</item> - missing "rancher-abc" from Recent messages or Context parameters.
+            * Bad item: <item>{"name": "pod-123", "type": "pod"}</item> - missing "rancher-" prefix from User unfinished input.
+    
+    ### User perspective
+    * Remember to keep the user's intent in mind when generating the list. DO NOT return suggestions that are from the Agent side of context.
+    * DO NOT return your thinking or any other text outside the <item> tags.
 
-### Context Awareness
-* Always consider the user's current context when defined (cluster, namespace, or resource being viewed) to build completions.
-* Use the provided recent messages from the conversation to build your completions. First messages are most relevant.
-* Always consider the user unfinished input to build completions.
-    * Good: If the unfinished input mentioned "pod-{some-id}", use that in the completion and build around it, for example like " in namespace {namespace}".
-    * Bad: Ignore unfinished input and start the completion unrelated to them, for example if the user unfinished input mentioned "pod-{some-id}" but you respond with "What can I do for you today?".
+    ### <item></item> tags
+    * Each <item> tag must contain a single resource name or identifier that are included in autocompletion request (Context parameters or Recent messages).
+    * The <item> payload should be:
+    {
+        "name": "resource-name",
+        "type": "resource-type" // e.g., pod, deployment, service, namespace, cluster
+    }
+    The list of items can be, for instance:
+        <item>{"name": "pod-1", "type": "pod"}</item><item>{"name": "pod-2", "type": "pod"}</item><item>{"name": "namespace-1", "type": "namespace"}</item>
 
-### User perspective
-* Remember to keep the user's intent in mind when generating completions. DO NOT return suggestions that are from the Agent side of context.
-  For example:
-    * User unfinished input: "Give me the logs for the failing p"
-        * Good completion: "od-{some-id} in local cluster" - this is an acceptable completion because it addresses the User's intent.
-        * Bad completion: "od. Sure, I can help with that." - this is not an acceptable completion because it does not continue the user unfinished input. It contains instead a response from the Agent side of context.
-    * User unfinished input: "How can I"
-        * Good completion: " check the pod {some-id} status?" - this is an acceptable completion because it continues the user unfinished input.
-        * Bad completion: " help you?" - this is not an acceptable completion because it's a question that is from Agent side of context.
-    * User unfinished input: "What type of resou"
-        * Good completion: "rce are is {some-id}?" - this is an acceptable completion because it continues the user unfinished input.
-        * Bad completion: "rces are you interested in?" - this is not an acceptable completion because it's a question that is from Agent side of context.
+ELSE
+    Complete the User unfinished input, naturally and concisely. Do not add any introductory text, explanations, wildcards like '@' or '#', or formatting. Only output the direct continuation of the User's text. Your response will be concatenated with the User unfinished input in the Chat prompt, so that it forms a complete request to be sent by the user to the AI agent later.
 
-### Consistency
-* If the user unfinished input is already a complete phrase or question, do not provide a suggestion, return empty string.
-  For example:
-    * User input: "Show me the logs for pod-{some-id}"
-        * Good completion: ""
-        * Bad completion: "Show me the logs for pod-{some-id}" - What else can I do for you? This is not a completion, it's an answer to the user's question.
-    * User input: "How do I create a deployment?"
-        * Good completion: ""
-        * Bad completion: "How do I create a deployment?" - Would you like to know more about deployments?
-        * Bad completion: "You can create a deployment by..." - this is not a completion, it's an answer to the user's question.
-* If the user unfinished input needs a completion in the middle of a sentence, provide the completion only for the missing part.
-  For example:
-    * User unfinished input: "Show me the logs for p in namespace fleet-local"
-        * Good completion: "od-{some-id}"
-        * Bad completion: "pod-{some-id} in namespace fleet-local" - this repeats the prompt already provided by the user.
+    ## CORE DIRECTIVES
 
-### Natural language Mentality
-* The completions should be in natural language, as the user would express it.
+    ### Syntax
+    * Keep in mind space and punctuation from the User unfinished input to ensure a seamless continuation.
+    For example:
+        * User unfinished input: "Give me the logs of"
+            * Good completion: " pod-{some-id} in namespace {namespace}"
+            * Bad completion: "pod-{some-id} in namespace {namespace}" - missing space at the beginning.
 
-### <item></item> tags
-* Each <item> tag must contain a single resource name or identifier that are included in autocompletion request (context or recent messages).
-* The <item> payload should be:
-  {
-    "name": "resource-name",
-    "type": "resource-type" // e.g., pod, deployment, service, namespace, cluster
-  }
-  The list of items can be, for instance:
-    <item>{"name": "pod-1", "type": "pod"}</item><item>{"name": "pod-2", "type": "pod"}</item><item>{"name": "namespace-1", "type": "namespace"}</item>
+    ### Context Awareness
+    * Always consider the user's current context (User unfinished input, Context parameters) when defined (clusters, namespaces, or resources) to build completions.
+    * Use also the provided Recent messages from the conversation to build your completions. First messages are most relevant.
+    * Always consider the User unfinished input to build completions.
+        * Good: If the User unfinished input mentioned "pod-{some-id}", use that in the completion and build around it, for example like " in namespace {namespace}".
+        * Bad: Ignore the User unfinished input and start the completion unrelated to them, for example if the user unfinished input mentioned "pod-{some-id}" but you respond with "What can I do for you today?".
+
+    ### User perspective
+    * Remember to keep the user's intent in mind when generating completions. DO NOT return suggestions that are from the Agent side of context.
+    For example:
+        * User unfinished input: "Give me the logs for the failing p"
+            * Good completion: "od-{some-id} in local cluster" - this is an acceptable completion because it addresses the User's intent.
+            * Bad completion: "od. Sure, I can help with that." - this is not an acceptable completion because it does not continue the User unfinished input. It contains instead a response from the Agent side of context.
+        * User unfinished input: "How can I"
+            * Good completion: " check the pod {some-id} status?" - this is an acceptable completion because it continues the User unfinished input.
+            * Bad completion: " help you?" - this is not an acceptable completion because it's a question that is from Agent side of context.
+        * User unfinished input: "What type of resou"
+            * Good completion: "rce are is {some-id}?" - this is an acceptable completion because it continues the User unfinished input.
+            * Bad completion: "rces are you interested in?" - this is not an acceptable completion because it's a question that is from Agent side of context.
+
+    ### Consistency
+    * If the User unfinished input is already a complete phrase or question, do not provide a suggestion, return empty string.
+    For example:
+        * User input: "Show me the logs for pod-{some-id}"
+            * Good completion: ""
+            * Bad completion: "Show me the logs for pod-{some-id}" - What else can I do for you? This is not a completion, it's an answer to the user's question.
+        * User input: "How do I create a deployment?"
+            * Good completion: ""
+            * Bad completion: "How do I create a deployment?" - Would you like to know more about deployments?
+            * Bad completion: "You can create a deployment by..." - this is not a completion, it's an answer to the user's question.
+    * If the User unfinished input needs a completion in the middle of a sentence, provide the completion only for the missing part.
+    For example:
+        * User unfinished input: "Show me the logs for p in namespace fleet-local"
+            * Good completion: "od-{some-id}"
+            * Bad completion: "pod-{some-id} in namespace fleet-local" - this repeats the prompt already provided by the user.
+
+    ### Natural language Mentality
+    * The completions should be in natural language, as the user would express it.
 """
         case RequestType.SUMMARY:
             return """Each message is a list of recent agent replies to the user. Your task is to generate a concise summary of these replies, focusing on key points and relevant information. Your response will be used to assign a title to a Chat.

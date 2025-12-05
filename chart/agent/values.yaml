@@ -77,7 +77,7 @@ chat:
 
   image:
     repository: ghcr.io/torchiaf/rancher-ai-chat-api
-    tag: v1.0.5
+    tag: v1.0.8
     pullPolicy: IfNotPresent
 
   service:

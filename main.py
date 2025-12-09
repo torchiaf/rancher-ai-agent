@@ -44,7 +44,7 @@ async def lifespan(app: FastAPI):
         logging.getLogger().setLevel(LOG_LEVEL)
         
         app.mem_agent = await create_memory_agent(
-            cache_client_url="redis://rancher-ai-redis",
+            cache_client_url=os.environ.get("REDIS_URL"),
             db_host=os.environ.get("DB_HOST"),
             db_port=int(os.environ.get("DB_PORT")),
             db_user=os.environ.get("DB_USER"),
@@ -457,33 +457,39 @@ async def stream_autocomplete_agent_response(
             pass
 
 def get_ws_connection_params(websocket: WebSocket) -> dict:
-    cookies = websocket.cookies
+    # cookies = websocket.cookies
 
-    rancher_url = "https://"+websocket.url.hostname
-    if websocket.url.port:
-        rancher_url += ":"+str(websocket.url.port)
+    # rancher_url = "https://"+websocket.url.hostname
+    # if websocket.url.port:
+    #     rancher_url += ":"+str(websocket.url.port)
 
-    rancher_token = str(cookies.get("R_SESS"))
+    # rancher_token = str(cookies.get("R_SESS"))
 
+    # return {
+    #     "url": "http://rancher-mcp-server",
+    #     "headers": {
+    #         "R_token": rancher_token,
+    #         "R_url": rancher_url
+    #     }
+    # }
+    
     return {
-        "url": "http://rancher-mcp-server",
+        "url": "http://0.0.0.0:9092",
         "headers": {
-            "R_token": rancher_token,
-            "R_url": rancher_url
-        }
+            "R_token": "token-s489h:6t8s6fzg9xbkfkjjzgbrr86msc87p54mqlgxgmlpvclkfl5xkjhz8n",
+            "R_url": "https://172.17.0.1"
+        },
     }
 
 async def get_user_id(websocket: WebSocket) -> str:
     cookies = websocket.cookies
 
-    rancher_url = "https://"+websocket.url.hostname
-    if websocket.url.port:
-        rancher_url += ":"+str(websocket.url.port)
-    rancher_token = str(cookies.get("R_SESS"))
-
     try:
+        # rancher_token = str(cookies.get("R_SESS"))
+        rancher_token = "token-s489h:6t8s6fzg9xbkfkjjzgbrr86msc87p54mqlgxgmlpvclkfl5xkjhz8n"
+
         async with httpx.AsyncClient(timeout=5.0, verify=False) as client:
-            resp = await client.get(f"{rancher_url}/v3/users?me=true", headers={
+            resp = await client.get("https://172.17.0.1/v3/users?me=true", headers={
                 "Cookie": f"R_SESS={rancher_token}",
             })
             payload = resp.json() 

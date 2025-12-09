@@ -40,8 +40,12 @@
         </form>
 
         <script>
-            const ws = new WebSocket("wss://{{ url }}/api/v1/namespaces/cattle-ai-agent-system/services/http:rancher-ai-agent:80/proxy/agent/ws/messages/{{ chat_id }}");
-
+            // const ws = new WebSocket("wss://{{ url }}/api/v1/namespaces/cattle-ai-agent-system/services/http:rancher-ai-agent:80/proxy/agent/ws/messages/{{ chat_id }}");
+            const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+            const hostPort = `${location.hostname}${location.port ? ':'+location.port : ''}`;
+            // Establish a WebSocket connection for messages
+            console.log(`Connecting to WebSocket at ${proto}://${hostPort}/agent/ws/messages/{{ chat_id }}`);
+            const ws = new WebSocket(`${proto}://${hostPort}/agent/ws/messages/{{ chat_id }}`);
             ws.onopen = function(event) {
                 console.log("WebSocket connection established.");
                 const li = document.createElement('li');
@@ -91,7 +95,8 @@
             };
 
             // Establish a WebSocket connection for autocomplete
-            const autoWs = new WebSocket("wss://{{ url }}/api/v1/namespaces/cattle-ai-agent-system/services/http:rancher-ai-agent:80/proxy/agent/ws/autocomplete");
+            // const autoWs = new WebSocket("wss://{{ url }}/api/v1/namespaces/cattle-ai-agent-system/services/http:rancher-ai-agent:80/proxy/agent/ws/autocomplete");
+            const autoWs = new WebSocket(`${proto}://${hostPort}/agent/ws/autocomplete`);
 
             let currentAutoLi;
             autoWs.onopen = function() {
@@ -154,7 +159,7 @@
             }
 
                 // Establish a WebSocket connection for summary
-                const summaryWs = new WebSocket("wss://{{ url }}/api/v1/namespaces/cattle-ai-agent-system/services/http:rancher-ai-agent:80/proxy/agent/ws/summary");
+                const summaryWs = new WebSocket(`${proto}://${hostPort}/agent/ws/summary`);
 
                 let currentSummaryLi;
                 summaryWs.onopen = function() {

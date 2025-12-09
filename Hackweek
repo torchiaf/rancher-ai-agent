@@ -1,0 +1,66 @@
+AI AUTOCOMPLETE EXTENSION 
+  https://hackweek.opensuse.org/25/projects/liz-prompt-autocomplete
+
+UI extension
+  Repo: https://github.com/torchiaf/rancher-ai-ui
+  Branch: hw-autocomplete
+
+Agent
+  Repo: https://github.com/torchiaf/rancher-ai-agent
+  Branch: feature-autocomplete
+
+DB: 
+  Repo: https://github.com/torchiaf/rancher-ai-db
+  Branch: main
+
+Rest API
+  Repo: https://github.com/torchiaf/rancher-ai-chat-api
+  Branch: main
+
+Changes: https://github.com/torchiaf/rancher-ai-agent/tree/feature-autocomplete 
+  - added autocomplete endpoint: returns completions from user context + user prompt + previous messages, it's stoppable 
+  - added summary endpoint: returns summary from a chat history - used to assign a Chat title 
+  - store chats and messages in the Redis cache for faster access 
+  - support chat_id when connecting to the WebSocket - to resume an old chat
+
+DB 
+  - align Redis cache <-> MySQL storage 
+
+Rest API
+  - expose rest endpoints for the UI extensions - messages and chats to show the list of chats and resume and old chat 
+
+
+Dev notes:
+
+- Rancher, docker installation (use your local-ip as hostname at first access):
+
+  docker run -d --restart=unless-stopped -p 80:80 -p 443:443 -e CATTLE_BOOTSTRAP_PASSWORD=asd -e CATTLE_PASSWORD_MIN_LENGTH=3 --name rancher-head --privileged rancher/rancher:head
+
+- AI assistant Helm install chart/agent - autocomplet endpoint + history support
+  
+  git remote add torchiaf git@github.com:torchiaf/rancher-ai-agent.git
+  git fetch torchiaf feature-autocomplete
+  git checkout -b feature-autocomplete torchiaf/feature-autocomplete
+
+  kubectl create namespace cattle-ai-agent-system
+
+  helm install ai-agent chart/agent \
+  --namespace cattle-ai-agent-system \
+  --create-namespace \
+  --set "imagePullSecrets[0].name=gh-secret" \
+  --set googleApiKey=AIzaSyBlhdHzPR4ao61IHktpXuHJSUf0VCgUljk \
+  --set ollamaUrl="" \
+  --set llmModel=gemini-2.0-flash \
+  --set insecureSkipTls=true \
+  --set activeLlm=gemini \
+  --set log.level=debug
+
+- Rancher UI assistant extension
+
+  git remote add torchiaf git@github.com:torchiaf/rancher-ai-ui.git
+  git fetch torchiaf hw-autocomplete
+  git checkout -b hw-autocomplete torchiaf/hw-autocomplete
+
+  # install yarn and node first
+  yarn install
+  API=https://your-local-ip yarn dev

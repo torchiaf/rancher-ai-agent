@@ -1,0 +1,16 @@
+{{- if .Values.llmMock.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: rancher-ai-llm-mock
+  namespace: cattle-ai-agent-system
+spec:
+  selector:
+    app: rancher-ai-llm-mock
+  ports:
+    - port: 80
+      name: http
+      targetPort: 8083
+      protocol: TCP
+  type: ClusterIP
+{{- end }}

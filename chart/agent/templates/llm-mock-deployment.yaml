@@ -1,0 +1,25 @@
+{{- if .Values.llmMock.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: rancher-ai-llm-mock
+  name: rancher-ai-llm-mock
+  namespace: cattle-ai-agent-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rancher-ai-llm-mock
+  template:
+    metadata:
+      labels:
+        app: rancher-ai-llm-mock
+    spec:
+      containers:
+      - image: "{{ .Values.llmMock.image.repository }}:{{ .Values.llmMock.image.tag }}"
+        imagePullPolicy: "{{ .Values.llmMock.image.pullPolicy }}"
+        name: llm-mock
+        ports:
+         - containerPort: 8083
+{{- end }}

@@ -35,3 +35,11 @@ langfuseHost:
 insecureSkipTls: false
 log:
   level: info
+
+llmMock:
+  enabled: false
+  url:
+  image:
+    repository: ghcr.io/torchiaf/rancher-ai-llm-mock
+    tag: v1.0.0
+    pullPolicy: Always

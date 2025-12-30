@@ -20,11 +20,12 @@ class MemoryAgent:
     async def destroy(self):
         await self.cache_client.disconnect()
 
-    async def store_chunk(self, chat_id: str, request_id: str, text: str = "", role: str = "agent"):
+    async def store_chunk(self, chat_id: str, request_id: str, text: str = "", context: dict = {}, role: str = "agent"):
         await self.cache_client.store_chunk(
             chat_id=chat_id,
             request_id=request_id,
             text=text,
+            context=context,
             role=role
         )
 

@@ -110,3 +110,6 @@ langfuseHost:
 insecureSkipTls: false
 log:
   level: info
+llmMock:
+  enabled: false
+  url: ""

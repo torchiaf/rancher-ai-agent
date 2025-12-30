@@ -148,5 +148,9 @@ spec:
             value: "{{ .Values.db.mysql.rootPassword }}"
           - name: DB_DATABASE
             value: "{{ .Values.db.mysql.database }}"
+          - name: LLM_MOCK_ENABLED
+            value: "{{ .Values.llmMock.enabled }}"
+          - name: LLM_MOCK_URL
+            value: "{{ .Values.llmMock.url }}"
         ports:
          - containerPort: 8000

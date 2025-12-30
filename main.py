@@ -525,12 +525,27 @@ def get_llm() -> BaseLanguageModel:
     ollama_url = os.environ.get("OLLAMA_URL")
     gemini_key = os.environ.get("GOOGLE_API_KEY")
     openai_key = os.environ.get("OPENAI_API_KEY")
+    
+    llm_mock_enabled = os.environ.get("LLM_MOCK_ENABLED", False)
+    llm_mock_url = os.environ.get("LLM_MOCK_URL", "")
+    if active and llm_mock_enabled:
+        logging.info(f"Connecting to LLM Mock server at {llm_mock_url}")
 
     if active == "ollama":
+        if llm_mock_enabled:
+            return ChatOllama(model=model, base_url=llm_mock_url)
         return ChatOllama(model=model, base_url=ollama_url)
     if active == "gemini":
+        if llm_mock_enabled:
+            return ChatGoogleGenerativeAI(
+                model=model,
+                base_url=llm_mock_url,
+                transport="rest"
+            )
         return ChatGoogleGenerativeAI(model=model)
     if active == "openai":
+        if llm_mock_enabled:
+            return OpenAI(model=model, base_url=llm_mock_url)
         return OpenAI(model=model)
 
     # default order if active is not specified

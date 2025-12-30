@@ -132,7 +132,13 @@ async def websocket_messages_endpoint(websocket: WebSocket, chat_id: str | None 
 
                     prompt, context, chat_payload, wildcard, request_id = _parse_websocket_request(request)
 
-                    await app.mem_agent.store_chunk(chat_id=chat_id, request_id=request_id, text=prompt, role="user")
+                    await app.mem_agent.store_chunk(
+                        chat_id=chat_id,
+                        request_id=request_id,
+                        text=prompt,
+                        context=context,
+                        role="user"
+                    )
 
                     if context:
                         context_prompt = ". Use the following parameters to populate tool calls when appropriate. \n Only include parameters relevant to the user’s request (e.g., omit namespace for cluster-wide operations). \n Parameters (separated by ;): \n "
@@ -383,7 +389,7 @@ async def stream_messages_agent_response(
                 text = _extract_text_from_chunk_content(chunk.content)
                 await websocket.send_text(text)
                 # store recent agent replies
-                await app.mem_agent.store_chunk(chat_id, request_id, text=text, role="agent")
+                await app.mem_agent.store_chunk(chat_id, request_id, text=text, context={}, role="llm")
 
         if event == "updates":
             if interrupt_value := data.get("__interrupt__"):
@@ -399,7 +405,7 @@ async def stream_messages_agent_response(
         if event == "custom":
             await websocket.send_text(data)
             # store recent mcp replies
-            await app.mem_agent.store_chunk(chat_id, request_id, text=data, role="mcp")
+            await app.mem_agent.store_chunk(chat_id, request_id, text=data, context={}, role="mcp")
 
 async def stream_autocomplete_agent_response(
     agent: CompiledStateGraph,

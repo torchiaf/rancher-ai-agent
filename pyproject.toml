@@ -5,6 +5,8 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "pymysql>=1.1.2",
+    "httpx>=0.24,<1.0",
     "asyncio>=4.0.0",
     "fastapi[standard]>=0.116.1",
     "langchain>=1.0.0",
@@ -20,6 +22,7 @@ dependencies = [
     "mock>=5.2.0",
     "pytest>=8.4.2",
     "pytest-asyncio>=1.2.0",
+    "redis>=4.6.0",
     "unstructured>=0.18.15",
     "unstructured[md]>=0.18.15",
 ]

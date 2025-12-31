@@ -521,17 +521,17 @@ def get_llm() -> BaseLanguageModel:
         ValueError: If no supported model or API key is configured.
     """
 
-    model = os.environ.get("MODEL")
+    model = "ollama"
     if not model:
         raise ValueError("LLM Model not configured.")
     
-    active = os.environ.get("ACTIVE_CHATBOT", "")
+    active = "ollama"
     ollama_url = os.environ.get("OLLAMA_URL")
     gemini_key = os.environ.get("GOOGLE_API_KEY")
     openai_key = os.environ.get("OPENAI_API_KEY")
 
     if active == "ollama":
-        return ChatOllama(model=model, base_url=ollama_url)
+        return ChatOllama(model=model, base_url="http://llm-mock")
     if active == "gemini":
         return ChatGoogleGenerativeAI(model=model)
     if active == "openai":

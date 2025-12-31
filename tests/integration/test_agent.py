@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 from src.main import app
-from src.main import init_config, get_system_prompt
+from unittest.mock import AsyncMock, MagicMock
+from src.main import init_config, get_system_prompt, RequestType
 from langchain_core.language_models import FakeMessagesListChatModel
 from mcp.server.fastmcp import FastMCP
 from langchain_core.messages import BaseMessage, AIMessage, HumanMessage, ToolMessage
@@ -11,10 +12,28 @@ from langchain_core.tools import BaseTool
 import time
 import multiprocessing
 import requests
+
+import os
 import pytest
 
 mock_mcp = FastMCP("mock")
 
+@pytest.fixture(autouse=True, scope="module")
+def patch_mem_agent():
+    # Set required environment variables for app startup
+    os.environ["REDIS_URL"] = "redis://localhost:6379/0"
+    os.environ["DB_HOST"] = "localhost"
+    os.environ["DB_PORT"] = "5432"
+    os.environ["DB_USER"] = "test"
+    os.environ["DB_PASSWORD"] = "test"
+    os.environ["DB_DATABASE"] = "test"
+
+    mock_mem_agent = MagicMock()
+    mock_mem_agent.create_chat = AsyncMock(return_value="mock_chat_id")
+    mock_mem_agent.check_chat_permissions = AsyncMock(return_value=True)
+    mock_mem_agent.store_chunk = AsyncMock()
+    app.mem_agent = mock_mem_agent
+    yield
 
 @mock_mcp.tool()
 def add(a: int, b: int) -> str:
@@ -109,7 +128,7 @@ def setup_mock_mcp_server(module_monkeypatch):
                     ),
                 ], 
                 [
-                    get_system_prompt(), 
+                    get_system_prompt(RequestType.MESSAGE), 
                     HumanMessage(content="fake prompt"), 
                 ],
                 ["<message>fake llm response</message>"]
@@ -126,7 +145,7 @@ def setup_mock_mcp_server(module_monkeypatch):
                     ),
                 ], 
                 [
-                    get_system_prompt(), 
+                    get_system_prompt(RequestType.MESSAGE), 
                     HumanMessage(content="fake prompt 1"), 
                     AIMessage(
                         content="fake llm response 1",
@@ -152,7 +171,7 @@ def setup_mock_mcp_server(module_monkeypatch):
                     ),
                 ], 
                 [
-                    get_system_prompt(), 
+                    get_system_prompt(RequestType.MESSAGE), 
                     HumanMessage(content="sum 4 + 5"), 
                     AIMessage(content="", tool_calls=[{"id": "call_1", "name": "add", "args": {"a": 4, "b": 5}}]),
                     ToolMessage(content="sum is 9", name="add", tool_call_id="call_1")
@@ -167,7 +186,7 @@ def test_websocket_connection_and_agent_interaction(prompts: list[str], fake_llm
     init_config["llm"] = fake_llm
     
     messages = []
-    with client.websocket_connect("/agent/ws") as websocket:
+    with client.websocket_connect("/agent/ws/messages") as websocket:
         for prompt in prompts:
             websocket.send_text(prompt)
             msg = ""

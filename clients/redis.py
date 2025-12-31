@@ -125,7 +125,7 @@ class RedisClient:
         except Exception:
             return []
 
-    async def store_chunk(self, chat_id: str, request_id: str, text: str = "", context: dict = {}, role: str = "agent"):
+    async def store_chunk(self, chat_id: str, request_id: str, text: str = "", context: dict = {}, tags: list[str] = [], role: str = "agent"):
         """
         Store a text chunk for a specific chat_id and request_id.
 
@@ -146,13 +146,21 @@ class RedisClient:
                 await self.client.expire(per_request_key, 7 * 24 * 3600)
                 
             # Convert context dict to json string
+            context_str = ""
             try:
                 context_str = json.dumps(context)
             except Exception:
-                context_str = ""
+                pass
+            
+            # Convert tags list to json string
+            tags_str = ""
+            try:
+                tags_str = json.dumps(tags)
+            except Exception:
+                pass
 
             # Append the chunk to the list for this request and trim
-            item = json.dumps({"role": role, "text": text, "context": context_str, "ts": int(time.time())})
+            item = json.dumps({"role": role, "text": text, "context": context_str, "tags": tags_str, "ts": int(time.time())})
 
             await self.client.rpush(per_request_key, item)
             await self.client.ltrim(per_request_key, -10000, -1)

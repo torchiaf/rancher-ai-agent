@@ -130,13 +130,14 @@ async def websocket_messages_endpoint(websocket: WebSocket, chat_id: str | None 
                 try:
                     request = await websocket.receive_text()
 
-                    prompt, context, chat_payload, wildcard, request_id = _parse_websocket_request(request)
+                    prompt, context, tags, chat_payload, wildcard, request_id = _parse_websocket_request(request)
 
                     await app.mem_agent.store_chunk(
                         chat_id=chat_id,
                         request_id=request_id,
                         text=prompt,
                         context=context,
+                        tags=tags,
                         role="user"
                     )
 
@@ -151,6 +152,7 @@ async def websocket_messages_endpoint(websocket: WebSocket, chat_id: str | None 
                         input_data={"messages": [{"role": "user", "content": prompt}]},
                         config=config,
                         chat_id=chat_id,
+                        tags=tags,
                         request_id=request_id,
                         websocket=websocket)
                 except WebSocketDisconnect:
@@ -206,7 +208,7 @@ async def websocket_autocomplete_endpoint(websocket: WebSocket):
             try:
                 request = await websocket.receive_text()
 
-                prompt, context, chat_payload, wildcard, request_id = _parse_websocket_request(request)
+                prompt, context, tags, chat_payload, wildcard, request_id = _parse_websocket_request(request)
 
                 prompt = f"User unfinished input: '{prompt}'"
 
@@ -319,7 +321,7 @@ async def websocket_summary_endpoint(websocket: WebSocket):
             try:
                 request = await websocket.receive_text()
 
-                prompt, context, chat_payload, wildcard, request_id = _parse_websocket_request(request)
+                prompt, context, tags, chat_payload, wildcard, request_id = _parse_websocket_request(request)
 
                 await websocket.send_text("<message>")
                 async for event, data in agent.astream(
@@ -363,6 +365,7 @@ async def stream_messages_agent_response(
     input_data: dict[str, list[dict[str, str]]],
     config: dict,
     chat_id: str,
+    tags: list[str],
     request_id: str,
     websocket: WebSocket,
 ) -> None:
@@ -389,7 +392,7 @@ async def stream_messages_agent_response(
                 text = _extract_text_from_chunk_content(chunk.content)
                 await websocket.send_text(text)
                 # store recent agent replies
-                await app.mem_agent.store_chunk(chat_id, request_id, text=text, context={}, role="llm")
+                await app.mem_agent.store_chunk(chat_id, request_id, text=text, context={}, tags=tags, role="llm")
 
         if event == "updates":
             if interrupt_value := data.get("__interrupt__"):
@@ -400,12 +403,13 @@ async def stream_messages_agent_response(
                     agent=agent,
                     input_data=Command(resume={"response": user_response}),
                     config=config,
+                    tags=tags,
                     websocket=websocket)
                 
         if event == "custom":
             await websocket.send_text(data)
             # store recent mcp replies
-            await app.mem_agent.store_chunk(chat_id, request_id, text=data, context={}, role="mcp")
+            await app.mem_agent.store_chunk(chat_id, request_id, text=data, context={}, tags=tags, role="mcp")
 
 async def stream_autocomplete_agent_response(
     agent: CompiledStateGraph,
@@ -800,10 +804,11 @@ def _parse_websocket_request(request: str) -> tuple[str, dict, list[str], str, s
 
         prompt = json_request.get("prompt", "")
         context = json_request.get("context", {})
+        tags = json_request.get("tags", [])
         chat_payload = json_request.get("chatPayload", [])
         wildcard = json_request.get("wildcard", "")
         request_id = str(uuid.uuid4())
 
-        return prompt, context, chat_payload, wildcard, request_id
+        return prompt, context, tags, chat_payload, wildcard, request_id
     except json.JSONDecodeError:
-        return request, {}, [], "", None
+        return request, {}, [], [], "", None

@@ -67,6 +67,7 @@ db:
       size: 1Gi
       storageClass: manual
   supervisor:
+    enabled: true
     image:
       repository: ghcr.io/torchiaf/rancher-ai-db
       tag: v1.0.9

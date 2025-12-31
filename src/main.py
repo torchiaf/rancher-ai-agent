@@ -272,7 +272,9 @@ async def stream_messages_agent_response(
                     agent=agent,
                     input_data=Command(resume={"response": user_response}),
                     config=config,
+                    chat_id=chat_id,
                     tags=tags,
+                    request_id=request_id,
                     websocket=websocket)
                 
         if event == "custom":

@@ -68,7 +68,7 @@ db:
   supervisor:
     image:
       repository: ghcr.io/torchiaf/rancher-ai-db
-      tag: v1.0.8
+      tag: v1.0.9
       pullPolicy: IfNotPresent
     agent:
       summaryUrl: "ws://rancher-ai-agent:80/agent/ws/summary"
@@ -77,7 +77,7 @@ chat:
 
   image:
     repository: ghcr.io/torchiaf/rancher-ai-chat-api
-    tag: v1.0.13
+    tag: v1.0.18
     pullPolicy: IfNotPresent
 
   service:

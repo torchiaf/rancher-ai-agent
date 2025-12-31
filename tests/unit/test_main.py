@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch, ANY
 from fastapi import WebSocketDisconnect
 
 from src.main import (
-    websocket_endpoint,
+    websocket_messages_endpoint,
     get_llm,
 )
 
@@ -79,9 +79,10 @@ def mock_dependencies():
          patch('src.main.load_mcp_tools', new_callable=AsyncMock) as mock_load_tools, \
          patch('src.main.create_k8s_agent') as mock_create_agent, \
          patch('src.main.get_system_prompt', return_value="fake_prompt"), \
-         patch('src.main.stream_agent_response', new_callable=AsyncMock) as mock_stream_response, \
+         patch('src.main.stream_messages_agent_response', new_callable=AsyncMock) as mock_stream_response, \
          patch('src.main.init_config', {"llm": "fake_llm"}), \
-         patch('src.main.logging') as mock_logging:
+         patch('src.main.logging') as mock_logging, \
+         patch('src.main.app') as mock_app:
 
         mock_streamable_http.return_value.__aenter__.return_value = (AsyncMock(), AsyncMock(), None)
         mock_compiled_agent = MagicMock()
@@ -92,21 +93,37 @@ def mock_dependencies():
         mock_client_session.return_value.__aenter__.return_value = mock_session
         mock_load_tools.return_value = ["fake_tool"]
 
+        # Mock app.mem_agent with required methods
+        mock_mem_agent = MagicMock()
+        mock_mem_agent.create_chat = AsyncMock(return_value="mock_chat_id")
+        mock_mem_agent.check_chat_permissions = AsyncMock(return_value=True)
+        mock_mem_agent.store_chunk = AsyncMock()
+        mock_app.mem_agent = mock_mem_agent
+
         yield {
             "streamablehttp_client": mock_streamable_http,
             "client_session": mock_session,
             "load_mcp_tools": mock_load_tools,
             "create_k8s_agent": mock_create_agent,
             "compiled_agent": mock_compiled_agent,
-            "stream_agent_response": mock_stream_response,
+            "stream_messages_agent_response": mock_stream_response,
             "logging": mock_logging,
+            "mem_agent": mock_mem_agent,
         }
 
+
 @pytest.mark.asyncio
-async def test_websocket_endpoint(mock_dependencies):
+@patch('src.main.httpx.AsyncClient', autospec=True)
+async def test_websocket_endpoint(mock_httpx_client, mock_dependencies):
     mock_ws = MockWebSocket(messages=["test message"])
 
-    await websocket_endpoint(mock_ws)
+    # Mock Rancher user API response
+    mock_client_instance = mock_httpx_client.return_value.__aenter__.return_value
+    mock_response = MagicMock()
+    mock_response.json.return_value = {"data": [{"id": "mock-user-id"}]}
+    mock_client_instance.get.return_value = mock_response
+
+    await websocket_messages_endpoint(mock_ws)
 
     assert mock_ws.accepted
     mock_dependencies["streamablehttp_client"].assert_called_once_with(
@@ -119,26 +136,33 @@ async def test_websocket_endpoint(mock_dependencies):
     mock_dependencies["client_session"].initialize.assert_awaited_once()
     mock_dependencies["load_mcp_tools"].assert_awaited_once_with(mock_dependencies["client_session"])
     mock_dependencies["create_k8s_agent"].assert_called_once_with("fake_llm", ["fake_tool"], "fake_prompt", ANY)
-    mock_dependencies["stream_agent_response"].assert_awaited_once()
-    call_kwargs = mock_dependencies["stream_agent_response"].call_args.kwargs
+    mock_dependencies["stream_messages_agent_response"].assert_awaited_once()
+    call_kwargs = mock_dependencies["stream_messages_agent_response"].call_args.kwargs
     assert call_kwargs['input_data'] == {"messages": [{"role": "user", "content": "test message"}]}
     assert call_kwargs['websocket'] == mock_ws
 
     assert not mock_ws.closed
 
 @pytest.mark.asyncio
-async def test_websocket_endpoint_context_message(mock_dependencies):
+@patch('src.main.httpx.AsyncClient', autospec=True)
+async def test_websocket_endpoint_context_message(mock_httpx_client, mock_dependencies):
     mock_ws = MockWebSocket(messages=[
         '{"prompt": "show all pods", "context": { "namespace": "default", "cluster": "local"} }'
     ])
 
-    await websocket_endpoint(mock_ws)
+    # Mock Rancher user API response
+    mock_client_instance = mock_httpx_client.return_value.__aenter__.return_value
+    mock_response = MagicMock()
+    mock_response.json.return_value = {"data": [{"id": "mock-user-id"}]}
+    mock_client_instance.get.return_value = mock_response
+
+    await websocket_messages_endpoint(mock_ws)
 
     mock_dependencies["client_session"].initialize.assert_awaited_once()
     mock_dependencies["load_mcp_tools"].assert_awaited_once_with(mock_dependencies["client_session"])
     mock_dependencies["create_k8s_agent"].assert_called_once_with("fake_llm", ["fake_tool"], "fake_prompt", ANY)
-    mock_dependencies["stream_agent_response"].assert_awaited_once()
-    call_kwargs = mock_dependencies["stream_agent_response"].call_args.kwargs
+    mock_dependencies["stream_messages_agent_response"].assert_awaited_once()
+    call_kwargs = mock_dependencies["stream_messages_agent_response"].call_args.kwargs
     assert call_kwargs['input_data'] == {"messages": [{"role": "user", "content": "show all pods. Use the following parameters to populate tool calls when appropriate. \n Only include parameters relevant to the user’s request (e.g., omit namespace for cluster-wide operations). \n Parameters (separated by ;): \n namespace:default;cluster:local;"}]}
     assert call_kwargs['websocket'] == mock_ws
 

@@ -5,6 +5,9 @@ description = "Rancher AI agent"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "pymysql>=1.1.2",
+    "httpx>=0.24,<1.0",
+    "redis>=4.6.0",
     "asyncio>=4.0.0",
     "fastapi[standard]>=0.116.1",
     "langchain>=1.0.0",

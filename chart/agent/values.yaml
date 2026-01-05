@@ -70,7 +70,7 @@ db:
     enabled: true
     image:
       repository: ghcr.io/torchiaf/rancher-ai-db
-      tag: v1.0.10
+      tag: v1.0.11
       pullPolicy: IfNotPresent
     agent:
       summaryUrl: "ws://rancher-ai-agent:80/agent/ws/summary"

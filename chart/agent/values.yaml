@@ -1,7 +1,7 @@
 aiAgent:
   image:
     repository: ghcr.io/torchiaf/rancher-ai-agent
-    tag: v1.0.49
+    tag: v1.0.50
     pullPolicy: Always
 mcp:
   image:
@@ -79,7 +79,7 @@ chat:
 
   image:
     repository: ghcr.io/torchiaf/rancher-ai-chat-api
-    tag: v1.0.22
+    tag: v1.0.23
     pullPolicy: IfNotPresent
 
   service:

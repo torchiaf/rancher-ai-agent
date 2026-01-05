@@ -6,6 +6,8 @@ metadata:
     app: rancher-ai-mysql
 spec:
   replicas: {{ .Values.db.replicaCount }}
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: rancher-ai-mysql

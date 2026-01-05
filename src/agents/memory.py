@@ -36,19 +36,21 @@ class MemoryAgent:
     async def create_chat(self, user_id: str):
         return await self.cache_client.create_chat(user_id)
 
-    async def get_chat_info(self, chat_id: str, user_id: str) -> dict | None:
-        # Try to get chat info from cache first
+    async def get_chat(self, chat_id: str, user_id: str) -> dict | None:
         cached_chats = await self.cache_client.fetch_chats(user_id)
         if cached_chats and chat_id in [c["chat_id"] for c in cached_chats]:
             return cached_chats[0]
 
-        return await self.db_client.get_chat_info(chat_id, user_id)
+        return await self.db_client.get_chat(chat_id, user_id)
 
     async def check_chat_permissions(self, chat_id: str, user_id: str) -> bool:
-        res = await self.get_chat_info(chat_id, user_id)
+        res = await self.get_chat(chat_id, user_id)
         if res:
             return True
         return False
+    
+    async def activate_chat(self, user_id: str, chat_id: str):
+        await self.cache_client.activate_chat(user_id, chat_id)
 
 async def create_memory_agent(
         cache_client_url: str,

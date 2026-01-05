@@ -63,7 +63,7 @@ class RedisClient:
 
             # Store chat metadata
             mapping = {
-                "active": 1,
+                "active": 0,
                 "chat_id": chat_id,
                 "user_id": user_id,
                 "created_at": int(time.time()),
@@ -81,7 +81,7 @@ class RedisClient:
             item = json.dumps(mapping)
             await self.client.rpush(user_list, item)
 
-            logging.info(f"Created chat {chat_id} for user {user_id} and appended to {user_list}")
+            logging.debug(f"Created chat {chat_id} for user {user_id} and appended to {user_list}")
 
             # Publish the new chat to a channel for external subscribers
             try:
@@ -124,6 +124,65 @@ class RedisClient:
             return chats
         except Exception:
             return []
+        
+    async def activate_chat(self, user_id: str, chat_id: str):
+        """
+        Activate a chat.
+        
+        - Sets the 'active' field to 1 for the specified chat_id.
+        - Sets the 'active' field to 0 for all other chats of the same user.
+        - Publish the changes for external subscribers.
+        
+        Args:
+            chat_id: The ID of the chat to set as active.
+        """
+        logging.debug(f"Setting chat {chat_id} as active for user {user_id}")
+
+        if not (self.client and chat_id and user_id):
+            return
+
+        try:
+            # Fetch all chats for the user and update their active status
+            user_chats_key = f"chats:u-{user_id}"
+            all_chats = await self.client.lrange(user_chats_key, 0, -1)
+
+            pipe = self.client.pipeline()
+            chat_updates = []
+
+            for raw in all_chats:
+                try:
+                    chat = json.loads(raw)
+                    c_id = chat.get("chat_id")
+                    chat_key = f"chat:c-{c_id}"
+                    if c_id == chat_id:
+                        pipe.hset(chat_key, "active", 1)
+                        chat["active"] = 1
+                    else:
+                        pipe.hset(chat_key, "active", 0)
+                        chat["active"] = 0
+                    chat_updates.append(json.dumps(chat))
+                except Exception:
+                    pass
+            await pipe.execute()
+            
+            # Publish the changes for external subscribers
+            try:
+                channel = f"channel:chats:u-{user_id}"
+                for raw in chat_updates:
+                    try:
+                        task = asyncio.create_task(self.client.publish(channel, raw))
+                        def _on_done(t):
+                            if exc := t.exception():
+                                logging.warning("Redis chat publish failed: %s", exc)
+                        task.add_done_callback(_on_done)
+                    except Exception:
+                        pass
+            except Exception:
+                logging.warning(f"Failed to publish chat {chat_id} as active for user {user_id}")
+
+            logging.debug(f"Chat {chat_id} set as active for user {user_id}")
+        except Exception as e:
+            logging.warning(f"Failed to set chat {chat_id} as active: {e}")
 
     async def store_chunk(self, chat_id: str, request_id: str, text: str = "", context: dict = {}, tags: list[str] = [], role: str = "agent"):
         """

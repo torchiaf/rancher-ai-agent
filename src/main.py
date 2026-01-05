@@ -79,14 +79,20 @@ async def websocket_messages_endpoint(websocket: WebSocket, chat_id: str | None 
 
     if not chat_id:
         chat_id = await app.mem_agent.create_chat(user_id)
-    elif not await app.mem_agent.check_chat_permissions(chat_id, user_id):
-        logging.warning(f"Permission denied for user {user_id} on chat {chat_id}")
-        await websocket.send_text(f'<error>{{"message": "Permission denied for chat {chat_id}"}}</error>')
-        await websocket.close()
-        return
+        logging.debug(f"Created new chat {chat_id} for user {user_id}")
+    else:
+        if not await app.mem_agent.check_chat_permissions(chat_id, user_id):
+            logging.warning(f"Permission denied for user {user_id} on chat {chat_id}")
+            await websocket.send_text(f'<error>{{"message": "Permission denied for chat {chat_id}"}}</error>')
+            await websocket.close()
+            return
+        else:
+            logging.debug(f"Permission granted for user {user_id} on chat {chat_id} - set chat as active")
+            
+    await app.mem_agent.activate_chat(user_id, chat_id)
+    logging.debug(f"Chat {chat_id} set as active for user {user_id}")
         
     connection_params = get_ws_connection_params(websocket)
-
     logging.info(f"ws/messages connection opened - chat_id={chat_id}")
 
     async with streamablehttp_client(**connection_params) as (read, write, _):

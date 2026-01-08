@@ -154,14 +154,16 @@ class RedisClient:
                     chat = json.loads(raw)
                     c_id = chat.get("chat_id")
                     chat_key = f"chat:c-{c_id}"
+
                     if c_id == chat_id:
                         pipe.hset(chat_key, "active", 1)
                         chat["active"] = 1
+                        # Put the active chat first in the published updates
+                        chat_updates.insert(0, json.dumps(chat))
                     else:
                         pipe.hset(chat_key, "active", 0)
                         chat["active"] = 0
-
-                    chat_updates.append(json.dumps(chat))
+                        chat_updates.append(json.dumps(chat))
 
                     logging.debug(f"--- Set chat {c_id} active={chat['active']} for user {user_id}")
                 except Exception:

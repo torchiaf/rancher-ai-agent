@@ -90,7 +90,6 @@ async def websocket_messages_endpoint(websocket: WebSocket, chat_id: str | None 
             logging.debug(f"Permission granted for user {user_id} on chat {chat_id} - set chat as active")
             
     await app.mem_agent.activate_chat(user_id, chat_id)
-    logging.debug(f"Chat {chat_id} set as active for user {user_id}")
         
     connection_params = get_ws_connection_params(websocket)
     logging.info(f"ws/messages connection opened - chat_id={chat_id}")

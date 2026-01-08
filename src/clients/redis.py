@@ -63,7 +63,7 @@ class RedisClient:
 
             # Store chat metadata
             mapping = {
-                "active": 0,
+                "active": 1,
                 "chat_id": chat_id,
                 "user_id": user_id,
                 "created_at": int(time.time()),
@@ -160,7 +160,10 @@ class RedisClient:
                     else:
                         pipe.hset(chat_key, "active", 0)
                         chat["active"] = 0
+
                     chat_updates.append(json.dumps(chat))
+
+                    logging.debug(f"--- Set chat {c_id} active={chat['active']} for user {user_id}")
                 except Exception:
                     pass
             await pipe.execute()

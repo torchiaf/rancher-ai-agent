@@ -55,30 +55,6 @@ class DatabaseManager:
                 await conn.commit()
         
         asyncio.create_task(_fn())
-        
-    def notify_request(self, thread_id: str, request_id: str) -> None:
-        """
-        Notify the database about request status.
-        """
-        
-        async def _fn():
-            async with await psycopg.AsyncConnection.connect(self.db_url) as conn:
-                logging.debug(f"Notifying request {request_id} for thread {thread_id}")
-
-                await conn.execute(
-                    """
-                    INSERT INTO r_normalization_request_queue (thread_id, request_id, processed, updated_at)
-                    VALUES (%s, %s, FALSE, NOW())
-                    ON CONFLICT (thread_id, request_id) DO UPDATE SET
-                    processed = FALSE,
-                    updated_at = NOW()
-                    """,
-                    (thread_id, request_id)
-                )
-
-                await conn.commit()
-        
-        asyncio.create_task(_fn())
 
 async def create_database_manager() -> DatabaseManager:
     """

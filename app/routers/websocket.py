@@ -99,11 +99,6 @@ async def websocket_endpoint(websocket: WebSocket, thread_id: str = None, llm: B
                     config=config,
                     websocket=websocket)
                 
-                if websocket.app.db_manager:
-                    websocket.app.db_manager.notify_request(
-                        thread_id=thread_id,
-                        request_id=request_id
-                    )
             except WebSocketDisconnect:
                 logging.info(f"Client {websocket.client.host} disconnected.")
                 

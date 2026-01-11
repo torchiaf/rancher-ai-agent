@@ -2,7 +2,7 @@ import json
 import logging
 import langgraph.types 
 
-from typing import Annotated, Sequence, TypedDict
+from typing import Annotated, Sequence, TypedDict, NotRequired
 from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
 from langchain_core.messages import ToolMessage, HumanMessage, RemoveMessage, SystemMessage
@@ -20,6 +20,11 @@ class ChildAgentState(TypedDict):
     """The state of the agent."""
     messages: Annotated[Sequence[BaseMessage], add_messages]
     summary: str
+    # Metadata fields (persisted but not sent to LLM)
+    prompt: NotRequired[str]
+    context: NotRequired[dict]
+    tags: NotRequired[list[str]]
+    mcp_responses: NotRequired[list[str]]
 
 class ChildAgentBuilder:
     def __init__(self, llm: BaseChatModel, tools: list[BaseTool], system_prompt: str, checkpointer: Checkpointer):

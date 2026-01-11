@@ -31,51 +31,51 @@ class DatabaseManager:
         except Exception as e:
             logging.error(f"Failed to initialize database: {e}", exc_info=True)
             
-    def notify_thread_active(self, thread_id: str) -> None:
+    def notify_thread(self, thread_id: str, user_id: str, active: bool) -> None:
         """
-        Mark a thread as active in the side-car table.
+        Notify the database about thread status.
         """
         
         async def _fn():
             async with await psycopg.AsyncConnection.connect(self.db_url) as conn:
+                logging.debug(f"Notifying thread {thread_id} as {'active' if active else 'inactive'} for user {user_id}")
+
                 await conn.execute(
                     """
-                    INSERT INTO r_thread_status (thread_id, active, last_updated)
-                    VALUES (%s, %s, CURRENT_TIMESTAMP)
-                    ON CONFLICT (thread_id) DO UPDATE
-                    SET active = EXCLUDED.active, last_updated = CURRENT_TIMESTAMP
+                    INSERT INTO r_normalization_thread_queue (thread_id, user_id, active, processed, updated_at)
+                    VALUES (%s, %s, %s, FALSE, NOW())
+                    ON CONFLICT (thread_id, user_id) DO UPDATE SET
+                    active = EXCLUDED.active,
+                    processed = FALSE,
+                    updated_at = NOW()
                     """,
-                    (thread_id, True)
+                    (thread_id, user_id, active)
                 )
-                
-                await conn.execute(
-                    """
-                    UPDATE r_thread_status
-                    SET active = FALSE
-                    WHERE thread_id != %s
-                    AND active = TRUE
-                    """,
-                    (thread_id,)
-                )
+
                 await conn.commit()
         
         asyncio.create_task(_fn())
-    
-    def notify_thread_inactive(self, thread_id: str) -> None:
+        
+    def notify_request(self, thread_id: str, request_id: str) -> None:
         """
-        Mark a thread as inactive in the side-car table.
+        Notify the database about request status.
         """
         
         async def _fn():
             async with await psycopg.AsyncConnection.connect(self.db_url) as conn:
+                logging.debug(f"Notifying request {request_id} for thread {thread_id}")
+
                 await conn.execute(
                     """
-                    UPDATE r_thread_status
-                    SET active = FALSE, last_updated = CURRENT_TIMESTAMP
-                    WHERE thread_id = %s
+                    INSERT INTO r_normalization_request_queue (thread_id, request_id, processed, updated_at)
+                    VALUES (%s, %s, FALSE, NOW())
+                    ON CONFLICT (thread_id, request_id) DO UPDATE SET
+                    processed = FALSE,
+                    updated_at = NOW()
                     """,
-                    (thread_id,)
+                    (thread_id, request_id)
                 )
+
                 await conn.commit()
         
         asyncio.create_task(_fn())

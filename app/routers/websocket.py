@@ -10,9 +10,11 @@ from starlette.websockets import WebSocketState
 from langgraph.graph.state import CompiledStateGraph
 from langfuse.langchain import CallbackHandler
 from langchain_core.language_models.llms import BaseLanguageModel
+from langgraph.checkpoint.memory import InMemorySaver
 
 from ..dependencies import get_llm
 from ..services.agent.agent import create_agent
+from ..types import RequestType
 
 router = APIRouter()
 
@@ -43,9 +45,9 @@ async def websocket_endpoint(websocket: WebSocket, thread_id: str = None, llm: B
     logging.debug(f"Starting websocket session with thread_id: {thread_id}")
     
     await websocket.accept()
-    logging.debug("ws connection opened")
+    logging.debug("ws/messages connection opened")
     
-    async with create_agent(llm=llm, websocket=websocket) as ctx:
+    async with create_agent(llm=llm, websocket=websocket, request_type=RequestType.MESSAGE) as ctx:
         agent = ctx.agent
 
         config = {
@@ -96,6 +98,52 @@ async def websocket_endpoint(websocket: WebSocket, thread_id: str = None, llm: B
     # TODO: any additional cleanup if necessary and changes to support OAuth 2
     # - Clean up MCP session and client if needed.
     # - Each user requires their own session for token-based authentication.
+
+@router.websocket("/agent/ws/summary")
+async def websocket_summary_endpoint(websocket: WebSocket, thread_id: str = None, llm: BaseLanguageModel = Depends(get_llm)):
+    """
+    WebSocket endpoint for the summary messages.
+
+    Accepts a WebSocket connection, sets up the agent and
+    handles the back-and-forth communication with the client.
+    """
+    await websocket.accept()
+    logging.debug("ws/summary connection opened")
+    
+    async with create_agent(llm=llm, websocket=websocket, request_type=RequestType.SUMMARY, checkpointer=InMemorySaver()) as ctx:
+        agent = ctx.agent
+
+        config = {
+            "configurable": {"thread_id": str(uuid.uuid4())},
+        }
+
+        while True:
+            try:
+                request = await websocket.receive_text()
+                
+                ws_request = _parse_websocket_request(request)
+                if ws_request.agent:
+                    config["configurable"]["agent"] = ws_request.agent
+                else:
+                    config["configurable"]["agent"] = ""
+
+                await stream_agent_response(
+                    agent=agent,
+                    input_data={"messages": [{"role": "user", "content": ws_request.prompt}]},
+                    config=config,
+                    websocket=websocket)
+            except WebSocketDisconnect:
+                logging.info(f"Client {websocket.client.host} disconnected.")
+                break
+            except Exception as e:
+                logging.error(f"An error occurred: {e}", exc_info=True)
+                if websocket.client_state == WebSocketState.CONNECTED:
+                    await websocket.send_text(f'<error>{{"message": "{str(e)}"}}</error>')
+                else:
+                    break
+            finally:
+                if websocket.client_state == WebSocketState.CONNECTED:
+                    await websocket.send_text("</message>")
 
 async def stream_agent_response(
     agent: CompiledStateGraph,

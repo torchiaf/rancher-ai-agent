@@ -25,20 +25,29 @@ class WebSocketRequest:
     agent: str = ""
 
 @router.websocket("/agent/ws/messages")
-async def websocket_endpoint(websocket: WebSocket, llm: BaseLanguageModel = Depends(get_llm)):
+@router.websocket("/agent/ws/messages/{thread_id}")
+async def websocket_endpoint(websocket: WebSocket, thread_id: str = None, llm: BaseLanguageModel = Depends(get_llm)):
     """
     WebSocket endpoint for the agent.
     
     Accepts a WebSocket connection, sets up the agent and
     handles the back-and-forth communication with the client.
     """
+    
+    if not thread_id:
+        thread_id = str(uuid.uuid4())
+    
+    if websocket.app.db_manager:
+        websocket.app.db_manager.notify_thread_active(thread_id)
+
+    logging.debug(f"Starting websocket session with thread_id: {thread_id}")
+    
     await websocket.accept()
     logging.debug("ws connection opened")
     
     async with create_agent(llm=llm, websocket=websocket) as ctx:
         agent = ctx.agent
 
-        thread_id = str(uuid.uuid4())
         config = {
             "configurable": {"thread_id": thread_id},
         }
@@ -70,6 +79,9 @@ async def websocket_endpoint(websocket: WebSocket, llm: BaseLanguageModel = Depe
                     websocket=websocket)
             except WebSocketDisconnect:
                 logging.info(f"Client {websocket.client.host} disconnected.")
+
+                if websocket.app.db_manager:
+                    websocket.app.db_manager.notify_thread_inactive(thread_id)
                 break
             except Exception as e:
                 logging.error(f"An error occurred: {e}", exc_info=True)

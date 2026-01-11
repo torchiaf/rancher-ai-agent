@@ -5,6 +5,7 @@ import certifi
 from fastapi import FastAPI
 from fastapi.concurrency import asynccontextmanager
 from .routers import websocket, ui
+from .services.db import create_database_manager
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
@@ -50,6 +51,11 @@ async def lifespan(app: FastAPI):
         logging.getLogger().setLevel(LOG_LEVEL)
         if os.environ.get('INSECURE_SKIP_TLS', 'false').lower() != "true":
             SimpleTruststore().set_truststore()
+
+        if os.environ.get("DB_MANAGER_ENABLED", "false").lower() == "true":
+            app.db_manager = await create_database_manager()
+        else:
+            app.db_manager = None
     except ValueError as e:
         logging.critical(e)
         raise e

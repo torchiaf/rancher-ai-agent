@@ -6,10 +6,10 @@ from dataclasses import dataclass
 from fastapi import  WebSocket
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
-from langgraph.checkpoint.memory import InMemorySaver
 from langchain_mcp_adapters.tools import load_mcp_tools
 from langgraph.graph.state import CompiledStateGraph
 from langchain_core.language_models.llms import BaseLanguageModel
+from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
 from .child import create_child_agent
@@ -136,19 +136,16 @@ async def _create_rancher_core_agent(llm: BaseLanguageModel, websocket: WebSocke
         if os.environ.get("ENABLE_RAG", "false").lower() == "true":
             tools = [fleet_documentation_retriever, rancher_documentation_retriever] + tools
         
-        # Initialize checkpointer for persisting agent state or fall back to in-memory
+        # Initialize checkpointer for persisting agent state in Postgres DB or fall back to in-memory
         checkpointer = InMemorySaver()
-        db_url = os.environ.get("DATABASE_URL")
-        if db_url:
+        if websocket.app.db_manager:
             try:
                 checkpointer = await stack.enter_async_context(
-                    AsyncPostgresSaver.from_conn_string(db_url)
+                    AsyncPostgresSaver.from_conn_string(websocket.app.db_manager.db_url)
                 )
-                # Initialize database schema
-                await checkpointer.setup()
-                logging.info("Using PostgreSQL checkpointer for agent state.")
+                logging.debug("Using PostgreSQL checkpointer for agent state.")
             except Exception as e:
-                logging.warning(f"Failed to connect to PostgreSQL ({e}), falling back to in-memory-saver checkpointer")
+                logging.warning(f"Using in-memory-saver checkpointer")
 
         agent = create_child_agent(llm, tools, _get_system_prompt(), checkpointer)
         

@@ -14,7 +14,7 @@ from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
 from .child import create_child_agent
 from ..rag import fleet_documentation_retriever, rancher_documentation_retriever
-from app.types import RequestType
+from ...types import RequestType
 
 RANCHER_AGENT_PROMPT = """You are a helpful and expert AI assistant integrated directly into the Rancher UI. Your primary goal is to assist users in managing their Kubernetes clusters and resources through the Rancher interface. You are a trusted partner, providing clear, confident, and safe guidance.
 

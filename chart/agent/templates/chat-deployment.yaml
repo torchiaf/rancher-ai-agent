@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rancher-ai-chat
+  namespace: cattle-ai-agent-system
+  labels:
+    app: rancher-ai-chat
+spec:
+  replicas: {{ .Values.chat.replicaCount }}
+  selector:
+    matchLabels:
+      app: rancher-ai-chat
+  template:
+    metadata:
+      labels:
+        app: rancher-ai-chat
+    spec:
+      containers:
+        - name: rest-api
+          image: "{{ .Values.chat.image.repository }}:{{ .Values.chat.image.tag }}"
+          imagePullPolicy: {{ .Values.chat.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.chat.service.port }}
+              name: http
+          env:
+            - name: DB_PASSWORD
+              value: "{{ .Values.db.postgres.password }}"
+            - name: DB_USER
+              value: "{{ .Values.db.postgres.user }}"
+            - name: DB_NAME
+              value: "{{ .Values.db.postgres.name }}"
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_HOST
+              value: rancher-ai-db
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.chat.livenessProbe.path }}
+              port: {{ .Values.chat.livenessProbe.port }}
+            initialDelaySeconds: {{ .Values.chat.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.chat.livenessProbe.periodSeconds }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.chat.readinessProbe.path }}
+              port: {{ .Values.chat.readinessProbe.port }}
+            initialDelaySeconds: {{ .Values.chat.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.chat.readinessProbe.periodSeconds }}

@@ -1,13 +1,60 @@
 aiAgent:
   image:
-    repository: ghcr.io/rancher-sandbox/rancher-ai-agent
-    tag: v0.1.2-alpha.1
-    pullPolicy: IfNotPresent
+    repository: ghcr.io/torchiaf/rancher-ai-agent
+    tag: v1.0.56
+    pullPolicy: Always
 mcp:
   image:
     repository: ghcr.io/rancher-sandbox/rancher-ai-mcp
     tag: v0.1.1
     pullPolicy: IfNotPresent
+
+db:
+  replicaCount: 1
+  service:
+    type: ClusterIP
+    port: 5432
+  postgres:
+    image:
+      repository: postgres
+      tag: "18"
+      pullPolicy: IfNotPresent
+    password: "password"
+    user: "postgres"
+    name: "postgres"
+    persistence:
+      size: 1Gi
+      storageClass: manual
+  supervisor:
+    enabled: true
+    image:
+      repository: ghcr.io/torchiaf/rancher-ai-db-2
+      tag: v1.0.2
+      pullPolicy: IfNotPresent
+    agent:
+      summaryUrl: "ws://rancher-ai-agent:80/agent/ws/summary"
+
+chat:
+  replicaCount: 1
+  image:
+    repository: ghcr.io/torchiaf/rancher-ai-chat-api
+    tag: v1.0.36
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    port: 5000
+
+  readinessProbe:
+    path: /health
+    port: 5000
+    initialDelaySeconds: 5
+    periodSeconds: 10
+  livenessProbe:
+    path: /health
+    port: 5000
+    initialDelaySeconds: 10
+    periodSeconds: 20
 
 llmModel: ""
 ollamaLlmModel: ""
@@ -32,6 +79,8 @@ rag:
 langfuseSecretKey:
 langfusePublicKey:
 langfuseHost:
+dbManager:
+  enabled: true
 insecureSkipTls: false
 llmMock:
   enabled: false

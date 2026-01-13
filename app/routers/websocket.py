@@ -40,10 +40,6 @@ async def websocket_endpoint(websocket: WebSocket, thread_id: str = None, llm: B
     
     if not thread_id:
         thread_id = str(uuid.uuid4())
-    
-    if websocket.app.db_manager:
-        await websocket.app.db_manager.activate_chat(thread_id, user_id, active=True)
-
     logging.debug(f"Starting websocket session with thread_id: {thread_id}, user_id: {user_id}")
     
     await websocket.accept()
@@ -101,9 +97,6 @@ async def websocket_endpoint(websocket: WebSocket, thread_id: str = None, llm: B
                 
             except WebSocketDisconnect:
                 logging.info(f"Client {websocket.client.host} disconnected.")
-                
-                if websocket.app.db_manager:
-                    await websocket.app.db_manager.activate_chat(thread_id, user_id, active=False)
 
                 break
             except Exception as e:

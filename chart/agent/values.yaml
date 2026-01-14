@@ -30,7 +30,7 @@ chat:
   replicaCount: 1
   image:
     repository: ghcr.io/torchiaf/rancher-ai-chat-api
-    tag: v1.0.38
+    tag: v1.0.42
     pullPolicy: IfNotPresent
 
   service:

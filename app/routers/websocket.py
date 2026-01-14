@@ -45,6 +45,8 @@ async def websocket_endpoint(websocket: WebSocket, thread_id: str = None, llm: B
     await websocket.accept()
     logging.debug("ws/messages connection opened")
     
+    await websocket.send_text(f'<chat-metadata>{{"chatId": "{thread_id}"}}</chat-metadata>')
+
     async with create_agent(llm=llm, websocket=websocket, request_type=RequestType.MESSAGE) as ctx:
         agent = ctx.agent
 

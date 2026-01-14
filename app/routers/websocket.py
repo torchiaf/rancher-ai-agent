@@ -10,7 +10,6 @@ from starlette.websockets import WebSocketState
 from langgraph.graph.state import CompiledStateGraph
 from langfuse.langchain import CallbackHandler
 from langchain_core.language_models.llms import BaseLanguageModel
-from langgraph.checkpoint.memory import InMemorySaver
 
 from ..dependencies import get_llm
 from ..services.agent.agent import create_agent
@@ -85,10 +84,12 @@ async def websocket_endpoint(websocket: WebSocket, thread_id: str = None, llm: B
 
                 input_data = {
                     "messages": input_messages,
-                    "prompt": ws_request.prompt,
-                    "context": ws_request.context if ws_request.context else {},
-                    "tags": ws_request.tags if ws_request.tags else [],
-                    "mcp_responses": []
+                    "agent_metadata": {
+                        "prompt": ws_request.prompt,
+                        "context": ws_request.context,
+                        "tags": ws_request.tags,
+                        "mcp_responses": [],
+                    },
                 }
 
                 await stream_agent_response(
@@ -115,60 +116,6 @@ async def websocket_endpoint(websocket: WebSocket, thread_id: str = None, llm: B
     # - Clean up MCP session and client if needed.
     # - Each user requires their own session for token-based authentication.
 
-@router.websocket("/agent/ws/summary")
-async def websocket_summary_endpoint(websocket: WebSocket, thread_id: str = None, llm: BaseLanguageModel = Depends(get_llm)):
-    """
-    WebSocket endpoint for the summary messages.
-
-    Accepts a WebSocket connection, sets up the agent and
-    handles the back-and-forth communication with the client.
-    """
-    await websocket.accept()
-    logging.debug("ws/summary connection opened")
-    
-    async with create_agent(llm=llm, websocket=websocket, request_type=RequestType.SUMMARY, checkpointer=InMemorySaver()) as ctx:
-        agent = ctx.agent
-
-        config = {
-            "configurable": {"thread_id": str(uuid.uuid4())},
-        }
-
-        while True:
-            try:
-                request = await websocket.receive_text()
-                
-                ws_request = _parse_websocket_request(request)
-                if ws_request.agent:
-                    config["configurable"]["agent"] = ws_request.agent
-                else:
-                    config["configurable"]["agent"] = ""
-                    
-                input_messages = [{"role": "user", "content": ws_request.prompt}]
-
-                input_data = {
-                    "messages": input_messages,
-                    "tags": ["summary"],
-                    "mcp_responses": []
-                }
-
-                await stream_agent_response(
-                    agent=agent,
-                    input_data=input_data,
-                    config=config,
-                    websocket=websocket)
-            except WebSocketDisconnect:
-                logging.info(f"Client {websocket.client.host} disconnected.")
-                break
-            except Exception as e:
-                logging.error(f"An error occurred: {e}", exc_info=True)
-                if websocket.client_state == WebSocketState.CONNECTED:
-                    await websocket.send_text(f'<error>{{"message": "{str(e)}"}}</error>')
-                else:
-                    break
-            finally:
-                if websocket.client_state == WebSocketState.CONNECTED:
-                    await websocket.send_text("</message>")
-
 async def stream_agent_response(
     agent: CompiledStateGraph,
     input_data: dict[str, list[dict[str, str]]],
@@ -187,6 +134,7 @@ async def stream_agent_response(
     """
 
     await websocket.send_text("<message>")
+
     mcp_responses = []
     
     async for stream in agent.astream_events(
@@ -215,10 +163,10 @@ async def stream_agent_response(
                                 await websocket.send_text(interrupt_value)
 
     if mcp_responses:
-        input_data["mcp_responses"] = mcp_responses
-        # Invoke agent to persist MCP responses to checkpoint
+        input_data["agent_metadata"]["mcp_responses"] = mcp_responses
+        # Invoke agent to persist MCP responses across checkpoints
         await agent.ainvoke(
-            {"mcp_responses": mcp_responses},
+            {"agent_metadata": input_data["agent_metadata"]},
             config=config,
         )
     
@@ -263,8 +211,8 @@ def _parse_websocket_request(request: str) -> WebSocketRequest:
         return WebSocketRequest(
             prompt=json_request.get("prompt", ""),
             context=json_request.get("context", {}),
-            tags = json_request.get("tags", None),
+            tags = json_request.get("tags", []),
             agent=json_request.get("agent", "")
         )
     except json.JSONDecodeError:
-        return WebSocketRequest(prompt=request, context={}, tags=None, agent="")
+        return WebSocketRequest(prompt=request, context={}, tags=[], agent="")

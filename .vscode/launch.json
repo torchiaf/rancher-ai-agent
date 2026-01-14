@@ -1,0 +1,50 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "FastAPI Debug",
+            "type": "python",
+            "request": "launch",
+            "module": "uvicorn",
+            "args": [
+                "app.main:app",
+                "--reload",
+                "--host",
+                "0.0.0.0",
+                "--port",
+                "8000"
+            ],
+            "jinja": true,
+            "justMyCode": true,
+            "env": {
+                "PYTHONUNBUFFERED": "1",
+                "LOG_LEVEL": "DEBUG",
+                "DB_MANAGER_ENABLED": "true",
+                "DB_USER": "postgres",
+                "DB_PASSWORD": "password",
+                "DB_HOST": "localhost",
+                "DB_PORT": "5432",
+                "DB_NAME": "postgres",
+                "OPENAI_API_KEY": "",
+                "SYSTEM_PROMPT": "",
+                "MODEL": "llama2",
+                "OLLAMA_URL": "http://localhost:11434",
+                "GOOGLE_API_KEY": "temp",
+                "ACTIVE_LLM": "ollama",
+                "ACTIVE_CHATBOT": "ollama",
+                "ENABLE_RAG": "false",
+                "EMBEDDINGS_MODEL": "",
+                "INSECURE_SKIP_TLS": "true",
+                "AWS_REGION": "us-west-2",
+                "AWS_ACCESS_KEY_ID": "dummy",
+                "AWS_SECRET_ACCESS_KEY": "dummy",
+                "RANCHER_URL": "https://172.17.0.1",
+                "RANCHER_API_TOKEN": "token-vzbbf:rj724mbltv6w7ffqvk664kk8prpjqfxlq9vxrjgmp2jbcrqp55g5l5",
+                "MCP_URL": "0.0.0.0:9092",
+                "LLM_MOCK_ENABLED": "true",
+                "LLM_MOCK_URL": "http://localhost:8083",
+                "KUBECONFIG": "kube.yaml"
+            }
+        }
+    ]
+}

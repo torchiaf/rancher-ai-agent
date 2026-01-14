@@ -4,7 +4,7 @@ import certifi
 
 from fastapi import FastAPI
 from fastapi.concurrency import asynccontextmanager
-from .routers import websocket, ui
+from .routers import chat, websocket, ui
 from .services.db import create_database_manager
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -64,6 +64,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 app.include_router(websocket.router)
+app.include_router(chat.router)
 
 if os.environ.get("ENABLE_TEST_UI", "").lower() == "true":
     app.include_router(ui.router)

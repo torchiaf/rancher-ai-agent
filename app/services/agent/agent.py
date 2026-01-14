@@ -13,6 +13,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
 from .child import create_child_agent
+from .chat import create_chat_agent
 from ..rag import fleet_documentation_retriever, rancher_documentation_retriever
 from ...types import RequestType
 
@@ -206,4 +207,19 @@ def _get_system_prompt(type: RequestType) -> str:
                 return prompt
             
             return RANCHER_AGENT_PROMPT
+
+def create_rest_api_agent(checkpointer):
+    """
+    Creates a chat agent for REST API endpoints.
+    
+    This is a minimal agent creation for REST API use cases where
+    only reading chat state is needed (no LLM, tools, or MCP).
+    
+    Args:
+        checkpointer: The checkpointer for reading agent state.
+    
+    Returns:
+        CompiledStateGraph: The compiled agent ready to read state.
+    """
+    return create_chat_agent(checkpointer)
 

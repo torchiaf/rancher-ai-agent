@@ -4,7 +4,7 @@ from urllib.parse import urlparse
 from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import Response, JSONResponse
 
-from app.services.auth import get_user_id
+from ..services.auth import get_user_id
 
 async def get_user_id_from_request(request: Request) -> str:
     """

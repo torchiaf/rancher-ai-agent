@@ -33,10 +33,12 @@ spec:
           claimName: "{{ .Values.rag.pvc }}"
       {{- end }}
       {{- end }}
+      {{- if .Values.dbManager.enabled }}
       initContainers:
       - name: wait-for-db
         image: postgres:15
         command: ['sh', '-c', 'until pg_isready -h rancher-ai-db -p 5432; do echo waiting for db; sleep 2; done;']
+      {{- end }}
       containers:
       - image: "{{ .Values.aiAgent.image.repository }}:{{ .Values.aiAgent.image.tag }}"
         imagePullPolicy: "{{ .Values.aiAgent.image.pullPolicy }}"

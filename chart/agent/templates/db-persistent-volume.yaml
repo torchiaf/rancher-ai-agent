@@ -1,3 +1,4 @@
+{{- if .Values.dbManager.enabled }}
 apiVersion: v1
 kind: PersistentVolume
 metadata:
@@ -12,3 +13,4 @@ spec:
     path: "/mnt/data/rancher-ai-postgres"
   persistentVolumeReclaimPolicy: Retain
   storageClassName: manual
+{{- end }}

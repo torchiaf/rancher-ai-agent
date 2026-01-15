@@ -68,21 +68,21 @@ class DatabaseManager:
                 
                 logging.debug(f"Processing checkpoint_tuple for chat_id: {chat_id}, user_id: {user_id}")
                 
-                if not any(chat["chatId"] == chat_id for chat in chat_list):
+                if not any(chat["id"] == chat_id for chat in chat_list):
                     chat_list.append({
-                        "chatId": chat_id,
+                        "id": chat_id,
                         "userId": user_id
                     })
 
             rows = []
             for chat in chat_list:
-                messages = await self.fetch_messages(chat_id=chat["chatId"], user_id=chat["userId"])
+                messages = await self.fetch_messages(chat_id=chat["id"], user_id=chat["userId"])
                 if messages and len(messages) > 0:
                     # createAt is the timestamp of the first message in the chat
                     created_at = messages[0]["createdAt"]
                     
                     row = {
-                        "chatId": chat["chatId"],
+                        "id": chat["id"],
                         "userId": chat["userId"],
                         "name": f"Chat - {datetime.fromisoformat(created_at).strftime('%Y-%m-%d %H:%M')}",
                         "createdAt": created_at
@@ -110,7 +110,7 @@ class DatabaseManager:
                 if messages and len(messages) > 0:
                     created_at = messages[0]["createdAt"]
                     chat = {
-                        "chatId": chat_id,
+                        "id": chat_id,
                         "userId": user_id,
                         "name": f"Chat - {datetime.fromisoformat(created_at).strftime('%Y-%m-%d %H:%M')}",
                         "createdAt": created_at,

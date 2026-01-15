@@ -77,7 +77,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
-  /chats/{chatId}:
+  /chats/{id}:
     delete:
       summary: Delete a specific chat
       description: Deletes a specific chat and all associated messages. Only the chat owner can delete it.
@@ -85,7 +85,7 @@ paths:
       tags:
         - Chats
       parameters:
-        - name: chatId
+        - name: id
           in: path
           description: The unique identifier of the chat to delete
           required: true
@@ -97,7 +97,7 @@ paths:
         '204':
           description: Chat deleted successfully
         '400':
-          description: User not found or chatId missing
+          description: User not found or chat id missing
           content:
             application/json:
               schema:
@@ -109,7 +109,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
-  /chats/{chatId}/messages:
+  /chats/{id}/messages:
     get:
       summary: List messages in a chat
       description: Retrieves all messages for a specific chat, grouped by request ID and sorted chronologically with optional tag filtering
@@ -117,7 +117,7 @@ paths:
       tags:
         - Messages
       parameters:
-        - name: chatId
+        - name: id
           in: path
           description: The unique identifier of the chat
           required: true
@@ -153,7 +153,7 @@ paths:
                 items:
                   $ref: '#/components/schemas/Message'
         '400':
-          description: User not found or chatId missing
+          description: User not found or id missing
           content:
             application/json:
               schema:
@@ -165,13 +165,10 @@ components:
       type: object
       description: A chat session
       properties:
-        chatId:
+        id:
           type: string
           format: uuid
           description: Unique identifier for the chat
-        active:
-          type: boolean
-          description: Whether the chat is currently active
         name:
           type: string
           description: Display name of the chat
@@ -179,49 +176,25 @@ components:
           type: integer
           description: Unix timestamp of when the chat was created
       required:
-        - chatId
-        - active
-        - name
+        - id
         - createdAt
       example:
-        chatId: ad924baf-24d7-49a5-84ae-bba3a58218a6
-        id: 1
-        active: true
+        id: ad924baf-24d7-49a5-84ae-bba3a58218a6
+        userId: PIPPO
         name: Chat 1
         createdAt: 1767638974
-
-    CreateChatRequest:
-      type: object
-      description: Request body for creating a new chat
-      properties:
-        name:
-          type: string
-          description: The name of the chat
-          minLength: 1
-        active:
-          type: boolean
-          description: Whether the chat is active
-          default: true
-      required:
-        - name
-      example:
-        name: My New Chat
-        active: true
 
     ChatResponse:
       type: object
       description: Response when creating a chat
       properties:
-        chatId:
+        id:
           type: string
           format: uuid
           description: Unique identifier for the chat
         userId:
           type: string
           description: ID of the user who owns the chat
-        active:
-          type: boolean
-          description: Whether the chat is active
         name:
           type: string
           description: Display name of the chat
@@ -230,15 +203,12 @@ components:
           description: Unix timestamp of when the chat was created
       required:
         - id
-        - chatId
         - userId
-        - active
         - name
         - created_at
       example:
-        chatId: ad924baf-24d7-49a5-84ae-bba3a58218a6
+        id: ad924baf-24d7-49a5-84ae-bba3a58218a6
         userId: PIPPO
-        active: true
         name: My New Chat
         created_at: 1767638974
 

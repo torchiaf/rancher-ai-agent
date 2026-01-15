@@ -11,11 +11,23 @@ from langgraph.graph.state import CompiledStateGraph
 from langfuse.langchain import CallbackHandler
 from langchain_core.language_models.llms import BaseLanguageModel
 
+from app.services.auth import get_user_id
+
 from ..dependencies import get_llm
 from ..services.agent.agent import create_agent
 from ..types import RequestType
 
 router = APIRouter()
+
+async def get_user_id_from_websocket(websocket: WebSocket) -> str:
+    """
+    Retrieves the user ID from the Rancher API using the session token from the WebSocket cookies.
+    """
+    cookies = websocket.cookies
+    rancher_url = os.environ.get("RANCHER_URL","https://"+websocket.url.hostname)
+    token = os.environ.get("RANCHER_API_TOKEN", cookies.get("R_SESS", ""))
+
+    return await get_user_id(rancher_url, token)
 
 @dataclass
 class WebSocketRequest:
@@ -35,7 +47,7 @@ async def websocket_endpoint(websocket: WebSocket, thread_id: str = None, llm: B
     handles the back-and-forth communication with the client.
     """
     
-    user_id = "admin"  # TODO: replace with actual user identification
+    user_id = await get_user_id_from_websocket(websocket)
     
     if not thread_id:
         thread_id = str(uuid.uuid4())

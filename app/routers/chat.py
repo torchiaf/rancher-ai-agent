@@ -1,126 +1,244 @@
 import logging
-from fastapi import APIRouter, Request
-from typing import List, Dict, Any
+import os
+from urllib.parse import urlparse
+from fastapi import APIRouter, HTTPException, Request, status
+from fastapi.responses import Response, JSONResponse
 
-from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
-from ..services.agent.agent import create_rest_api_agent
+from app.services.auth import get_user_id
+
+async def get_user_id_from_request(request: Request) -> str:
+    """
+    Retrieves the user ID from the Rancher API using the session token from the request cookies.
+    """
+    rancher_url = os.environ.get("RANCHER_URL", "")
+    token = request.cookies.get("R_SESS")
+
+    host = ""
+    if not token:
+        logging.warning("R_SESS cookie not found")
+        return None
+
+    if rancher_url:
+        parsed = urlparse(rancher_url)
+        scheme = parsed.scheme or "https"
+        netloc = parsed.netloc
+        host = f"{scheme}://{netloc}"
+    else:
+        rancher_host = request.headers.get("Host", "localhost")
+        host = f"https://{rancher_host}"
+
+    return await get_user_id(host, token)
 
 router = APIRouter(prefix="/api", tags=["chats"])
 
 @router.get("/chats")
-async def get_chats(request: Request) -> List[Dict[str, Any]]:
+async def get_chats(request: Request):
     """
+    TODO: add filtering by tags from query parameters.
     Get all threads that have at least one user message and return them as chats list.
 
     Returns:
         A list of chat objects.
     """
+    user_id = await get_user_id_from_request(request)
 
-    async with AsyncPostgresSaver.from_conn_string(request.app.db_manager.db_url) as checkpointer:
-        threads = []
-        async for checkpoint in checkpointer.alist(config=None, filter={"user_id": "admin"}):
-            logging.debug(f"Found chat thread: {checkpoint.config["configurable"]["thread_id"]}")
-            
-            threads.append({
-                "thread_id": checkpoint.config["configurable"]["thread_id"],
-                "user_id": checkpoint.metadata["user_id"],
-            })
-
-        return threads
-    
-@router.get("/chats/{chat_id}/messages")
-async def get_chat_messages(request: Request, chat_id: str) -> List[Dict[str, Any]]:
+    try:
+        chats = await request.app.db_manager.fetch_chats(
+            user_id=user_id
+        )
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content=chats
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Error fetching chats for user_id {user_id}: {e}", exc_info=True)
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={"detail": "Internal server error"}
+        )
+        
+@router.delete("/chats")
+async def delete_chats(request: Request) -> JSONResponse:
     """
+    Delete all chats for the user.
+
+    Returns:
+        A success message and an HTTP status code.
+    """
+    
+    user_id = await get_user_id_from_request(request)
+
+    try:
+        await request.app.db_manager.delete_chats(
+            user_id=user_id
+        )
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Error deleting chats for user_id {user_id}: {e}", exc_info=True)
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={"detail": "Internal server error"}
+        )
+
+@router.get("/chats/{chat_id}")
+async def get_chat(request: Request, chat_id: str) -> JSONResponse:
+    """
+    Get a chat by ID.
+
+    Args:
+        chat_id: The ID of the thread.
+
+    Returns:
+        A chat object and an HTTP status code.
+    """
+    
+    user_id = await get_user_id_from_request(request)
+
+    if not chat_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="chat_id is required")
+    
+    try:
+        chat = await request.app.db_manager.fetch_chat(
+            chat_id=chat_id,
+            user_id=user_id
+        )
+        if not chat:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chat not found")
+        
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content=chat
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Error fetching chat for chat_id {chat_id} and user_id {user_id}: {e}", exc_info=True)
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={"detail": "Internal server error"}
+        )
+        
+@router.put("/chats/{chat_id}")
+async def update_chat(request: Request, chat_id: str, chat_data: dict) -> JSONResponse:
+    """
+    Update a chat.
+    Args:
+        chat_id: The ID of the thread.
+        chat_data: The chat data to update.
+    Returns:
+        The updated chat object and an HTTP status code.
+    """
+    
+    user_id = await get_user_id_from_request(request)
+
+    if not chat_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="chat_id is required")
+    
+    if not chat_data:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="chat_data is required")
+
+    try:
+        chat = await request.app.db_manager.fetch_chat(
+            chat_id=chat_id,
+            user_id=user_id
+        )
+        if not chat:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chat not found")
+
+        updated_chat = await request.app.db_manager.update_chat(
+            chat_id=chat_id,
+            user_id=user_id,
+            chat_data=chat_data
+        )
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content=updated_chat
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Error updating chat for chat_id {chat_id} and user_id {user_id}: {e}", exc_info=True)
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={"detail": "Internal server error"}
+        )
+
+@router.delete("/chats/{chat_id}")
+async def delete_chat(request: Request, chat_id: str) -> JSONResponse:
+    """
+    Delete a specific chat by ID.
+
+    Args:
+        chat_id: The ID of the thread.
+
+    Returns:
+        A success message and an HTTP status code.
+    """
+    
+    user_id = await get_user_id_from_request(request)
+
+    if not chat_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="chat_id is required")
+    
+    try:
+        await request.app.db_manager.delete_chat(
+            chat_id=chat_id,
+            user_id=user_id
+        )
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Error deleting chat for chat_id {chat_id} and user_id {user_id}: {e}", exc_info=True)
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={"detail": "Internal server error"}
+        )
+
+@router.get("/chats/{chat_id}/messages")
+async def get_chat_messages(request: Request, chat_id: str) -> JSONResponse:
+    """
+    TODO: add filtering by tags from query parameters.
     Get messages for a specific thread.
 
     Args:
         chat_id: The ID of the thread.
     Returns:
-        A list of message objects.
+        A list of message objects and an HTTP status code.
     """
     
-    async with AsyncPostgresSaver.from_conn_string(request.app.db_manager.db_url) as checkpointer:
-        rows = []
+    user_id = await get_user_id_from_request(request)
 
-        # Create agent with the checkpointer to access state
-        agent = create_rest_api_agent(checkpointer)
-        
-        # Filter by chat_id
-        config = {"configurable": {"thread_id": chat_id}}
-        
-        # Collect states grouped by request_id in reverse order
-        states_list = []
-        async for state in agent.aget_state_history(config):
-            states_list.append(state)
+    if not chat_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="chat_id is required")
+    
+    try:
+        chat = await request.app.db_manager.fetch_chat(
+            chat_id=chat_id,
+            user_id=user_id
+        )
+        if not chat:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chat not found")
 
-        # Group states by request_id
-        states_dict = {}
-        for state in reversed(states_list):
-            if state and state.values and state.metadata:
-                state_request_id = state.metadata.get("request_id")
-                if state_request_id:
-                    if state_request_id not in states_dict:
-                        states_dict[state_request_id] = []
-                    states_dict[state_request_id].append(state)
-        
-        # Process states for each request_id
-        processed_message_ids = []
-        for request_id, states in states_dict.items():
-            
-            logging.debug(f"Processing state for chat_id: {chat_id}, request_id: {request_id}")
-            
-            user_row = None
-            agent_row = None
-            
-            mcp_str = ""
-            llm_str = ""
-
-            for state in states:
-                agent_metadata = state.values.get("agent_metadata", {})
-                context = agent_metadata.get("context", {})
-                tags = agent_metadata.get("tags", [])
-                mcp_responses = agent_metadata.get("mcp_responses", [])
-                mcp_resp_str = "".join(mcp_responses) if mcp_responses else ""
-
-                # Filter out already processed messages
-                messages = [m for m in state.values.get("messages", []) if hasattr(m, "id") and m.id not in processed_message_ids]
-
-                for msg in messages:
-                    if msg.type == 'human':
-                        if user_row is None:
-                            text = agent_metadata.get("prompt", "")
-                            user_row = {
-                                "chatId": chat_id,
-                                "requestId": request_id,
-                                "role": "user",
-                                "message": text if text else "",
-                                "context": context,
-                                "tags": tags,
-                                "createdAt": msg.additional_kwargs.get("created_at"),
-                            }
-
-                    if msg.type == 'ai':
-                        # Always concatenate MCP responses to agent message
-                        if mcp_str == "":
-                            mcp_str = mcp_resp_str
-                        if llm_str == "":
-                            llm_str = msg.content if msg.content else ""
-                            
-                        text = (mcp_str + llm_str) if (mcp_str or llm_str) else agent_row["message"] if agent_row else ""
-                        if text:
-                            agent_row = {
-                                "chatId": chat_id,
-                                "requestId": request_id,
-                                "role": "agent",
-                                "message": text,
-                                "context": None,
-                                "tags": tags,
-                                "createdAt": msg.additional_kwargs.get("created_at"), # Always the date from latest Agent node
-                            }
-                    processed_message_ids.append(msg.id)
-            if user_row:
-                rows.append(user_row)
-            if agent_row:
-                rows.append(agent_row)
-
-    return rows
+        messages = await request.app.db_manager.fetch_messages(
+            chat_id=chat_id,
+            user_id=user_id
+        )
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content=messages
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Error fetching messages for chat_id {chat_id} and user_id {user_id}: {e}", exc_info=True)
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={"detail": "Internal server error"}
+        )

@@ -11,7 +11,7 @@ from langgraph.graph.state import CompiledStateGraph
 from langfuse.langchain import CallbackHandler
 from langchain_core.language_models.llms import BaseLanguageModel
 
-from app.services.auth import get_user_id
+from ..services.auth import get_user_id
 
 from ..dependencies import get_llm
 from ..services.agent.agent import create_agent

@@ -1,7 +1,7 @@
 aiAgent:
   image:
     repository: ghcr.io/torchiaf/rancher-ai-agent
-    tag: v1.0.61
+    tag: v1.0.62
     pullPolicy: Always
 mcp:
   image:
@@ -25,30 +25,6 @@ db:
     persistence:
       size: 1Gi
       storageClass: manual
-
-chat:
-  replicaCount: 1
-  image:
-    repository: ghcr.io/torchiaf/rancher-ai-chat-api
-    tag: v1.0.42
-    pullPolicy: IfNotPresent
-
-  service:
-    type: ClusterIP
-    port: 5000
-
-  readinessProbe:
-    path: /health
-    port: 5000
-    initialDelaySeconds: 5
-    periodSeconds: 10
-  livenessProbe:
-    path: /health
-    port: 5000
-    initialDelaySeconds: 10
-    periodSeconds: 20
-  agent:
-    summaryUrl: "ws://rancher-ai-agent:80/agent/ws/summary"
 
 llmModel: ""
 ollamaLlmModel: ""

@@ -2,7 +2,7 @@ import os
 import logging
 from datetime import datetime
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
-from app.services.agent.agent import create_rest_api_agent
+from .agent.agent import create_rest_api_agent
 
 class DatabaseManager:
     """

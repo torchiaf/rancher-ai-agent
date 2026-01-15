@@ -1,5 +1,4 @@
 import logging
-import os
 import httpx
 from urllib.parse import urlparse
 

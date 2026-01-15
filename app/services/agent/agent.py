@@ -187,6 +187,21 @@ async def _create_rancher_core_agent(llm: BaseLanguageModel, websocket: WebSocke
 
     # All contexts automatically cleaned up here in reverse order since we used AsyncExitStack
 
+def create_rest_api_agent(checkpointer):
+    """
+    Creates a chat agent for REST API endpoints.
+    
+    This is a minimal agent creation for REST API use cases where
+    only reading chat state is needed (no LLM, tools, or MCP).
+    
+    Args:
+        checkpointer: The checkpointer for reading agent state.
+    
+    Returns:
+        CompiledStateGraph: The compiled agent ready to read state.
+    """
+    return create_chat_agent(checkpointer)
+
 def _get_system_prompt(type: RequestType) -> str:
     """
     Retrieves the system prompt for the AI agent.
@@ -207,19 +222,3 @@ def _get_system_prompt(type: RequestType) -> str:
                 return prompt
             
             return RANCHER_AGENT_PROMPT
-
-def create_rest_api_agent(checkpointer):
-    """
-    Creates a chat agent for REST API endpoints.
-    
-    This is a minimal agent creation for REST API use cases where
-    only reading chat state is needed (no LLM, tools, or MCP).
-    
-    Args:
-        checkpointer: The checkpointer for reading agent state.
-    
-    Returns:
-        CompiledStateGraph: The compiled agent ready to read state.
-    """
-    return create_chat_agent(checkpointer)
-

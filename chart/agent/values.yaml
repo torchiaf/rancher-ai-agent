@@ -1,8 +1,8 @@
 aiAgent:
   image:
-    repository: ghcr.io/rancher-sandbox/rancher-ai-agent
-    tag: v0.1.2-alpha.1
-    pullPolicy: IfNotPresent
+    repository: ghcr.io/torchiaf/rancher-ai-agent
+    tag: v1.0.72
+    pullPolicy: Always
 mcp:
   image:
     repository: ghcr.io/rancher-sandbox/rancher-ai-mcp
@@ -49,8 +49,9 @@ rag:
 langfuseSecretKey:
 langfusePublicKey:
 langfuseHost:
-dbManager:
+persistence:
   enabled: true
+  dbConnectionString: "postgresql://postgres:password@localhost:5432/postgres"
 insecureSkipTls: false
 llmMock:
   enabled: false

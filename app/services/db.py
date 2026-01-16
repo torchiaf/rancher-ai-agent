@@ -192,44 +192,45 @@ class DatabaseManager:
                 { "ai": ["welcome"] },
             ]
             
-            # Collect states grouped by request_id in reverse order
-            states_list = []
-            async for state in agent.aget_state_history(config):
+            # Collect snapshots grouped by request_id in reverse order
+            snapshots_list = []
+            async for snapshot in agent.aget_state_history(config):
                 # Filter by user_id
-                if state.metadata.get("user_id") == user_id:
-                    states_list.append(state)
+                if snapshot.metadata.get("user_id") == user_id:
+                    snapshots_list.append(snapshot)
 
-            # Group states by request_id
-            states_dict = {}
-            for state in reversed(states_list):
-                if state and state.values and state.metadata:
-                    state_request_id = state.metadata.get("request_id")
-                    if state_request_id:
-                        if state_request_id not in states_dict:
-                            states_dict[state_request_id] = []
-                        states_dict[state_request_id].append(state)
+            # Group snapshots by request_id
+            snapshots_dict = {}
+            for snapshot in reversed(snapshots_list):
+                if snapshot and snapshot.values and snapshot.metadata:
+                    snapshot_request_id = snapshot.metadata.get("request_id")
+                    if snapshot_request_id:
+                        if snapshot_request_id not in snapshots_dict:
+                            snapshots_dict[snapshot_request_id] = []
+                        snapshots_dict[snapshot_request_id].append(snapshot)
             
-            # Process states for each request_id
+            # Process snapshots for each request_id
             processed_message_ids = []
-            for request_id, states in states_dict.items():
+            for request_id, snapshots in snapshots_dict.items():
                 
-                logging.debug(f"Processing state for chat_id: {chat_id}, request_id: {request_id}")
+                logging.debug(f"Processing snapshot for chat_id: {chat_id}, request_id: {request_id}")
                 
                 user_row = None
                 agent_row = None
                 
                 mcp_str = ""
                 llm_str = ""
-
-                for state in states:
-                    agent_metadata = state.values.get("agent_metadata", {})
+                
+                # Process the last snapshot (most recent) for the request_id
+                for snapshot in snapshots[-1:]:
+                    agent_metadata = snapshot.values.get("agent_metadata", {})
                     context = agent_metadata.get("context", {})
                     tags = agent_metadata.get("tags", [])
                     mcp_responses = agent_metadata.get("mcp_responses", [])
                     mcp_resp_str = "".join(mcp_responses) if mcp_responses else ""
 
                     # Filter out already processed messages
-                    messages = [m for m in state.values.get("messages", []) if hasattr(m, "id") and m.id not in processed_message_ids]
+                    messages = [m for m in snapshot.values.get("messages", []) if hasattr(m, "id") and m.id not in processed_message_ids]
 
                     for msg in messages:
                         if msg.type == 'human' and self.filter_by_tags(EXCLUDED_TAGS_DEFAULT, tags, msg.type):

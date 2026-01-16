@@ -221,14 +221,14 @@ class DatabaseManager:
                 mcp_str = ""
                 llm_str = ""
 
-                for state in states:
+                for state in states[-1:]:
                     agent_metadata = state.values.get("agent_metadata", {})
                     context = agent_metadata.get("context", {})
                     tags = agent_metadata.get("tags", [])
                     mcp_responses = agent_metadata.get("mcp_responses", [])
                     mcp_resp_str = "".join(mcp_responses) if mcp_responses else ""
 
-                    # Filter out already processed messages
+                    # Filter out already processed messages in the snapshot
                     messages = [m for m in state.values.get("messages", []) if hasattr(m, "id") and m.id not in processed_message_ids]
 
                     for msg in messages:
@@ -264,9 +264,8 @@ class DatabaseManager:
                                     "createdAt": msg.additional_kwargs.get("created_at"), # Always the date from latest Agent node
                                 }
                         processed_message_ids.append(msg.id)
-                if user_row:
+                if user_row and agent_row:
                     rows.append(user_row)
-                if agent_row:
                     rows.append(agent_row)
 
         return rows

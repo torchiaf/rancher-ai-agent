@@ -254,19 +254,14 @@ class MemoryManager:
             { "ai": ["welcome"] },
         ]
         
-        # Collect states grouped by request_id in reverse order
+        # Collect states in reverse order
         states_list = []
         async for state in stateGraph.aget_state_history(config, filter={"user_id": user_id}):
-            # Filter by user_id and skip summarization snapshots (which contain only a summary)
-            if state.metadata.get("user_id") == user_id:
-                values = getattr(state, "values", {}) or {}
-                if "summary" in values:
-                    continue
-                states_list.append(state)
+            states_list.insert(0, state)
 
         # Group states by request_id
         states_dict = {}
-        for state in reversed(states_list):
+        for state in states_list:
             if state and state.values and state.metadata:
                 state_request_id = state.metadata.get("request_id")
                 if state_request_id:

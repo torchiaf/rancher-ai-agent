@@ -96,19 +96,20 @@ class MemoryManager:
         Extract chat metadata from a checkpoint tuple.
         """
         channel_values = checkpointTuple.checkpoint.get("channel_values", {})
+        
+        name = channel_values.get("chat_name", "")
         messages = channel_values.get("messages", [])
 
-        name = ""
         created_at = None
-
         if messages and len(messages) > 0:
             # First message is used for chat metadata
             message = messages[0]
 
             additional_kwargs = message.additional_kwargs
             created_at = additional_kwargs.get("created_at") if additional_kwargs else None
-            if created_at:
-                name = f"Chat - {datetime.fromisoformat(created_at).strftime('%Y-%m-%d %H:%M')}"
+        
+        if not name and created_at:
+            name = f"Chat - {datetime.fromisoformat(created_at).strftime('%Y-%m-%d %H:%M')}"
 
         return {
             "name": name,
@@ -205,7 +206,7 @@ class MemoryManager:
 
         return None
 
-    async def update_chat(self, chat_id: str, user_id: str, chat_data: dict) -> dict:
+    async def update_chat(self, stateGraph: CompiledStateGraph, chat_id: str, user_id: str, chat_data: dict) -> dict:
         """
         Update a specific chat thread for a specific user.
 
@@ -216,9 +217,15 @@ class MemoryManager:
         Returns:
             The updated chat thread record.
         """
-        # TODO: finish implementation of update_chat
+        name = chat_data.get("name")
 
-        return chat_data  # Placeholder return
+        if name and isinstance(name, str) and len(name) > 0:
+            config = {"configurable": {"thread_id": chat_id, "user_id": user_id}}
+            await stateGraph.aupdate_state(config, {"chat_name": name})
+        
+        chat = await self.fetch_chat(chat_id, user_id)
+
+        return chat
     
     async def delete_chat(self, chat_id: str, user_id: str) -> None:
         """

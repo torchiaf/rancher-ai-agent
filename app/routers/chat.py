@@ -168,12 +168,19 @@ async def update_chat(request: Request, chat_id: str, chat_data: dict) -> JSONRe
         )
         if not chat:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chat not found")
+        
+        stateGraph = create_rest_api_agent(request)
 
         updated_chat = await request.app.memory_manager.update_chat(
+            stateGraph=stateGraph,
             chat_id=chat_id,
             user_id=user_id,
             chat_data=chat_data
         )
+        
+        if not updated_chat:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Failed to update chat, chat not found")
+        
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content=updated_chat

@@ -36,4 +36,5 @@ class AgentState(TypedDict):
     messages: Annotated[Sequence[BaseMessage], add_messages_with_timestamp]
     summary: str
     # Fields below are persisted by LangGraph but not handled by LLM or tools
+    chat_name: NotRequired[str]
     agent_metadata: NotRequired[AgentMetadata]

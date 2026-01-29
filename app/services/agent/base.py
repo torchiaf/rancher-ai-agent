@@ -163,7 +163,7 @@ class BaseAgentBuilder:
         request_id = config["configurable"]["request_id"]
 
         for tool_call in getattr(state["messages"][-1], "tool_calls", []):
-            should_continue, interrupt_message = await handle_interrupt(getattr(self.agent_config, "human_validation_tools", []), tool_call)
+            interrupt_message = should_interrupt(getattr(self.agent_config, "human_validation_tools", []), tool_call)
 
             additional_kwargs = {
                 "request_id": request_id,
@@ -174,16 +174,19 @@ class BaseAgentBuilder:
                 additional_kwargs["interrupt_message"] = interrupt_message
                 additional_kwargs["confirmation"] = True
 
-            if not should_continue:
-                additional_kwargs["confirmation"] = False
-                return {
-                    "messages": [ToolMessage(
-                        content=INTERRUPT_CANCEL_MESSAGE,
-                        name=tool_call["name"],
-                        tool_call_id=tool_call["id"],
-                        additional_kwargs=additional_kwargs
-                    )]
-                }
+                # Direct call to not loose async context
+                response = langgraph.types.interrupt(interrupt_message)
+
+                if response != "yes":
+                    additional_kwargs["confirmation"] = False
+                    return {
+                        "messages": [ToolMessage(
+                            content=INTERRUPT_CANCEL_MESSAGE,
+                            name=tool_call["name"],
+                            tool_call_id=tool_call["id"],
+                            additional_kwargs=additional_kwargs
+                        )]
+                    }
             
             try:
                 logging.debug("calling tool")

@@ -163,7 +163,7 @@ class BaseAgentBuilder:
         request_id = config["configurable"]["request_id"]
 
         for tool_call in getattr(state["messages"][-1], "tool_calls", []):
-            should_continue, interrupt_message = handle_interrupt(getattr(self.agent_config, "human_validation_tools", []), tool_call)
+            should_continue, interrupt_message = await handle_interrupt(getattr(self.agent_config, "human_validation_tools", []), tool_call)
 
             additional_kwargs = {
                 "request_id": request_id,
@@ -338,7 +338,7 @@ def should_interrupt(human_validation_tools: list[HumanValidationTool], tool_cal
     return ""
 
     
-def handle_interrupt(human_validation_tools: list[HumanValidationTool], tool_call: dict) -> tuple[bool, str | None]:
+async def handle_interrupt(human_validation_tools: list[HumanValidationTool], tool_call: dict) -> tuple[bool, str | None]:
     """Handles the user confirmation interrupt for a tool call.
     
     Returns:

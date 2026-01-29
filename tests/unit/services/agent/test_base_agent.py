@@ -685,7 +685,8 @@ def test_should_interrupt_returns_empty_for_non_validated_tools():
     
     assert result == ""
 
-def test_handle_interrupt_cancels_on_no_response():
+@pytest.mark.asyncio
+async def test_handle_interrupt_cancels_on_no_response():
     """Verify handle_interrupt returns False when user says no."""
     validation_tools = [HumanValidationTool(name="testTool", type="UPDATE")]
     tool_call = {
@@ -700,12 +701,13 @@ def test_handle_interrupt_cancels_on_no_response():
     }
     
     with patch("langgraph.types.interrupt", return_value="no"):
-        should_continue, interrupt_msg = handle_interrupt(validation_tools, tool_call)
+        should_continue, interrupt_msg = await handle_interrupt(validation_tools, tool_call)
     
     assert should_continue is False
     assert interrupt_msg is not None
 
-def test_handle_interrupt_continues_on_yes_response():
+@pytest.mark.asyncio
+async def test_handle_interrupt_continues_on_yes_response():
     """Verify handle_interrupt returns True when user says yes."""
     validation_tools = [HumanValidationTool(name="testTool", type="UPDATE")]
     tool_call = {
@@ -720,7 +722,7 @@ def test_handle_interrupt_continues_on_yes_response():
     }
     
     with patch("langgraph.types.interrupt", return_value="yes"):
-        should_continue, interrupt_msg = handle_interrupt(validation_tools, tool_call)
+        should_continue, interrupt_msg = await handle_interrupt(validation_tools, tool_call)
     
     assert should_continue is True
     assert interrupt_msg is not None

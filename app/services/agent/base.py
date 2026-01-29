@@ -2,6 +2,7 @@
 Base agent builder with shared logic for all agent types.
 """
 
+import contextvars
 import json
 import logging
 import langgraph.types
@@ -347,7 +348,9 @@ async def handle_interrupt(human_validation_tools: list[HumanValidationTool], to
         - interrupt_message: The interrupt message if one was triggered, None otherwise
     """
     if interrupt_message := should_interrupt(human_validation_tools, tool_call):
-        response = langgraph.types.interrupt(interrupt_message)
+        ctx = contextvars.copy_context()
+
+        response = ctx.run(langgraph.types.interrupt, interrupt_message)
         if response != "yes":
             return False, interrupt_message
         return True, interrupt_message

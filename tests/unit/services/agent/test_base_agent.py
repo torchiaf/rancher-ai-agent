@@ -733,7 +733,7 @@ def test_process_tool_result_handles_mcp_response_with_ui_context():
     })
     
     with patch("app.services.agent.base.dispatch_custom_event"):
-        processed, mcp_response = process_tool_result(tool_result, {})
+        processed, mcp_response = process_tool_result(tool_result, {}, MagicMock())
     
     assert processed == "LLM response"
     assert mcp_response is not None
@@ -743,7 +743,7 @@ def test_process_tool_result_handles_plain_string():
     """Verify plain string tool results are returned as-is."""
     tool_result = "Simple string response"
     
-    processed, mcp_response = process_tool_result(tool_result, {})
+    processed, mcp_response = process_tool_result(tool_result, {}, MagicMock())
     
     assert processed == "Simple string response"
     assert mcp_response is None
@@ -752,7 +752,7 @@ def test_process_tool_result_handles_list_format():
     """Verify list-formatted tool results are properly extracted."""
     tool_result = [{"type": "text", "text": "Extracted text", "id": "123"}]
     
-    processed, mcp_response = process_tool_result(tool_result, {})
+    processed, mcp_response = process_tool_result(tool_result, {}, MagicMock())
     
     assert processed == "Extracted text"
     assert mcp_response is None
@@ -765,7 +765,7 @@ def test_process_tool_result_handles_doc_links():
     })
     
     with patch("app.services.agent.base.dispatch_custom_event") as mock_dispatch:
-        processed, _ = process_tool_result(tool_result, {})
+        processed, _ = process_tool_result(tool_result, {}, MagicMock())
         
         # Check that dock_link event was dispatched
         calls = [call for call in mock_dispatch.call_args_list if call[0][0] == "dock_link"]

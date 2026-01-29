@@ -190,7 +190,7 @@ class BaseAgentBuilder:
                 tool_result = await self.tools_by_name[tool_call["name"]].ainvoke(tool_call["args"])
                 logging.debug("tool call finished")
 
-                processed_result, mcp_response = process_tool_result(tool_result, state)
+                processed_result, mcp_response = process_tool_result(tool_result, state, config)
 
                 if mcp_response:
                     additional_kwargs["mcp_response"] = mcp_response
@@ -355,7 +355,7 @@ def handle_interrupt(human_validation_tools: list[HumanValidationTool], tool_cal
     return True, None 
 
 
-def process_tool_result(tool_result: str | list, state: AgentState) -> tuple[str, str | None]:
+def process_tool_result(tool_result: str | list, state: AgentState, config: RunnableConfig) -> tuple[str, str | None]:
     """Processes the raw tool result, handling JSON and streaming UI context if necessary.
        MCP returns example: {"uiContext":{}, "llm": {}}
        
@@ -373,12 +373,14 @@ def process_tool_result(tool_result: str | list, state: AgentState) -> tuple[str
 
         if "uiContext" in json_result:
             mcp_response = f"<mcp-response>{json.dumps(json_result['uiContext'])}</mcp-response>"
-            dispatch_custom_event("ui_context",mcp_response)
+            dispatch_custom_event("ui_context", mcp_response, config=config)
         if "docLinks" in json_result:
             for link in json_result['docLinks']:
                 dispatch_custom_event(
-                "dock_link",
-                f"<mcp-doclink>{link}</mcp-doclink>")
+                    "dock_link",
+                    f"<mcp-doclink>{link}</mcp-doclink>",
+                    config=config
+                )
 
         # Return the value for the LLM, or the full object if 'llm' key is not present
         return convert_to_string_if_needed(json_result.get("llm", json_result)), mcp_response

@@ -166,7 +166,7 @@ class BaseAgentBuilder:
         request_id = config["configurable"]["request_id"]
 
         for tool_call in getattr(state["messages"][-1], "tool_calls", []):
-            should_continue, interrupt_message = handle_interrupt(getattr(self.agent_config, "human_validation_tools", []), tool_call)
+            should_continue, interrupt_message = handle_interrupt(getattr(self.agent_config, "human_validation_tools", []), tool_call, state)
 
             additional_kwargs = {
                 "request_id": request_id,
@@ -341,7 +341,7 @@ def should_interrupt(human_validation_tools: list[HumanValidationTool], tool_cal
     return ""
 
     
-def handle_interrupt(human_validation_tools: list[HumanValidationTool], tool_call: dict) -> tuple[bool, str | None]:
+def handle_interrupt(human_validation_tools: list[HumanValidationTool], tool_call: dict, state: AgentState) -> tuple[bool, str | None]:
     """Handles the user confirmation interrupt for a tool call.
     
     Returns:
@@ -353,6 +353,13 @@ def handle_interrupt(human_validation_tools: list[HumanValidationTool], tool_cal
         response = langgraph.types.interrupt(interrupt_message)
         if response != "yes":
             return False, interrupt_message
+        
+        selected_agent = state.get("selected_agent", {})
+        if selected_agent:
+            dispatch_custom_event(
+                "subagent_choice_event",
+                f'<agent-metadata>{{"agentName": "{selected_agent.get("name")}", "selectionMode": "{selected_agent.get("mode")}"}}</agent-metadata>',
+            )
         return True, interrupt_message
           
     return True, None 

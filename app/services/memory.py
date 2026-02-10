@@ -111,10 +111,17 @@ class MemoryManager:
 
             if not name:
                 request_metadata = message.additional_kwargs.get("request_metadata", {})
+
                 user_input = request_metadata.get("user_input", "")
-                
-                # Use content of first User message as default chat name
-                name = user_input if user_input else "Untitled Chat"
+                labels = request_metadata.get("labels", {})
+
+                summary_label = labels.get("summary", "")
+                if summary_label:
+                    # Use summary label as chat name if available
+                    name = summary_label
+                else:
+                    # Use content of first User message as default chat name
+                    name = user_input if user_input else "Untitled Chat"
 
         return {
             "name": name,
@@ -324,6 +331,7 @@ class MemoryManager:
                             "agent": request_metadata.get("agent", None),
                             "message": request_metadata.get("user_input", ""),
                             "context": request_metadata.get("context", None),
+                            "labels": request_metadata.get("labels", None),
                             "tags": tags,
                             "createdAt": msg.additional_kwargs.get("created_at"),
                         })

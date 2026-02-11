@@ -2,6 +2,47 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 from app.services.memory import MemoryManager
 
+def test_extract_content_as_string():
+    """Test the _extract_content_as_string method with various content formats"""
+    memory_manager = MemoryManager()
+    
+    # Test with plain string
+    result = memory_manager._extract_content_as_string("Hello world")
+    assert result == "Hello world"
+    
+    # Test with list of dicts containing 'text' key
+    content = [
+        {'type': 'text', 'text': "I'm sorry, I can't fulfill that request. I"},
+        {'type': 'text', 'text': " need more information"}
+    ]
+    result = memory_manager._extract_content_as_string(content)
+    assert result == "I'm sorry, I can't fulfill that request. I need more information"
+    
+    # Test with mixed list of dicts and strings
+    content = [
+        {'type': 'text', 'text': "Part 1"},
+        " Part 2",
+        {'type': 'text', 'text': " Part 3"}
+    ]
+    result = memory_manager._extract_content_as_string(content)
+    assert result == "Part 1 Part 2 Part 3"
+    
+    # Test with empty list
+    result = memory_manager._extract_content_as_string([])
+    assert result == ""
+    
+    # Test with None
+    result = memory_manager._extract_content_as_string(None)
+    assert result == ""
+    
+    # Test with dict without 'text' key (should be skipped)
+    content = [
+        {'type': 'text', 'text': "Valid text"},
+        {'type': 'other', 'data': "Invalid data"}
+    ]
+    result = memory_manager._extract_content_as_string(content)
+    assert result == "Valid text"
+
 @pytest.mark.asyncio
 async def test_fetch_chats_returns_non_empty_chats():
     mock_checkpointer = MagicMock()

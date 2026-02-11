@@ -49,6 +49,35 @@ class MemoryManager:
             raise RuntimeError("MemoryManager not initialized. Call initialize() first.")
         return self.checkpointer
 
+    def _extract_content_as_string(self, content: any) -> str:
+        """
+        Extracts content as a string, handling different formats.
+        
+        The content can be:
+        1. A plain string
+        2. A list of dictionaries with 'text' keys (content blocks)
+        3. A mixed list of dicts and strings
+        
+        Args:
+            content: The content to extract from
+            
+        Returns:
+            The extracted text as a single string
+        """
+        if isinstance(content, str):
+            return content
+        
+        if isinstance(content, list):
+            text_parts = []
+            for item in content:
+                if isinstance(item, dict) and 'text' in item:
+                    text_parts.append(item['text'])
+                elif isinstance(item, str):
+                    text_parts.append(item)
+            return "".join(text_parts)
+        
+        return str(content) if content else ""
+
     def _filter_by_tags(self, tag_filters: list[dict], tags: list, role: str) -> bool:
         """
         TODO: add custom tag filtering logic here.
@@ -341,7 +370,7 @@ class MemoryManager:
                     selected_agent = msg.additional_kwargs.get("selected_agent", selected_agent)
 
                     if msg.type == 'ai':
-                        llm_str = msg.content if msg.content else ""
+                        llm_str = self._extract_content_as_string(msg.content)
 
                     if msg.type == 'tool':
                         interrupt_str = msg.additional_kwargs.get("interrupt_message", "")

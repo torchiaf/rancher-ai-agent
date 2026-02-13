@@ -62,7 +62,7 @@ async def _validate(agent_config: AgentConfig) -> None:
 
 @kopf.on.resume('ai.cattle.io', 'v1alpha1', 'aiagentconfigs', retries=5)
 @kopf.on.create('ai.cattle.io', 'v1alpha1', 'aiagentconfigs', retries=5)
-@kopf.on.update('ai.cattle.io', 'v1alpha1', 'aiagentconfigs', retries=5)
+@kopf.on.update('ai.cattle.io', 'v1alpha1', 'aiagentconfigs', retries=5, ignore_fields=['status', 'metadata.managedFields'])
 async def create_fn(spec, name, namespace, logger, patch, **kwargs):
     """
     Handle AIAgentConfig resource lifecycle events.

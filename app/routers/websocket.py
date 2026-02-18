@@ -2,6 +2,7 @@ import os
 import uuid
 import logging
 import json
+import asyncio
 
 from ..dependencies import get_llm
 from ..services.agent.factory import NoAgentAvailableError, create_agent
@@ -96,7 +97,7 @@ async def websocket_endpoint(websocket: WebSocket, thread_id: str = None, llm: B
 
     while True:
         try:
-            request = await websocket.receive_text()
+            request = await asyncio.wait_for(websocket.receive_text(), timeout=3.0)
             request_id = str(uuid.uuid4())
 
             ws_request = _parse_websocket_request(request)
@@ -109,6 +110,10 @@ async def websocket_endpoint(websocket: WebSocket, thread_id: str = None, llm: B
                 config=config,
                 websocket=websocket)
             
+        except asyncio.TimeoutError:
+            logging.info(f"WebSocket connection timeout for thread {thread_id}")
+            await websocket.close(code=1000, reason="Connection timeout")
+            break
         except WebSocketDisconnect:
             logging.info(f"Client {websocket.client.host} disconnected.")
 

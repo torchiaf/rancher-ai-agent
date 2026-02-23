@@ -45,11 +45,11 @@ FROM registry.suse.com/bci/python:3.13
 
 WORKDIR /app
 
-RUN pip install uv
+RUN pip install -U pip && pip install uv
 
 COPY . .
 
-RUN uv pip install --system -r pyproject.toml
+RUN uv pip install --system --refresh -r pyproject.toml
 
 COPY --from=docs-builder /rancher_docs /rancher_docs
 COPY --from=docs-builder /fleet_docs /fleet_docs

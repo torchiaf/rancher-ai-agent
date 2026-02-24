@@ -331,10 +331,12 @@ async def update_settings(settings: SettingsUpdate, request: Request):
         # Check if user has permission to update llm-config secret
         has_permission = await check_k8s_permission(
             user_id=user_id,
-            verb="update",
+            verb="patch",
             resource="secrets",
             namespace=AGENT_NAMESPACE
         )
+
+        logging.info(f"User {user_id} permission check for patch secrets: {has_permission}")
 
         if not has_permission:
             logging.warning(f"User {user_id} attempted to update settings without permission")

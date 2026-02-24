@@ -50,8 +50,6 @@ def get_llm() -> BaseLanguageModel:
     active = os.environ.get("ACTIVE_LLM", "")
     if active and active not in ["ollama", "gemini", "openai", "bedrock"]:
         raise ValueError("Unsupported Active LLM specified.")
-
-    model = get_llm_model(active)
     
     llm_mock_enabled = os.environ.get("LLM_MOCK_ENABLED", "false").lower() == "true"
     llm_mock_url = os.environ.get("LLM_MOCK_URL", "")
@@ -64,6 +62,7 @@ def get_llm() -> BaseLanguageModel:
     openai_url = os.environ.get("OPENAI_URL")
     aws_region = os.environ.get("AWS_REGION")
 
+    model = get_llm_model(active)
     if active == "ollama":
         if llm_mock_enabled:
             return ChatOllama(model=model, base_url=llm_mock_url)
@@ -89,26 +88,29 @@ def get_llm() -> BaseLanguageModel:
 
     # default order if active is not specified
     if ollama_url:
+        model = get_llm_model("ollama")
         return ChatOllama(model=model, base_url=ollama_url)
     if gemini_key:
+        model = get_llm_model("gemini")
         return ChatGoogleGenerativeAI(model=model)
     if openai_key:
+        model = get_llm_model("openai")
         if openai_url:
             return ChatOpenAI(model=model, base_url=openai_url)
         else:
             return ChatOpenAI(model=model)
     if aws_region:
+        model = get_llm_model("bedrock")
         return ChatBedrockConverse(model=model)
 
     raise ValueError("LLM not configured.")
 
-def get_llm_model(active_llm: str) -> str:
+def get_llm_model(llm: str) -> str:
     """
     Retrieves the model name from environment variables.
-    If an active LLM is specified, it looks for the corresponding model variable, otherwise it falls back to a general MODEL variable.
     
     Args:
-        active_llm: The active LLM identifier, one of 'ollama', 'gemini', 'openai', 'bedrock'.
+        llm: The LLM identifier, one of 'ollama', 'gemini', 'openai', 'bedrock'.
 
     Returns:
         The model name as a string.
@@ -116,11 +118,8 @@ def get_llm_model(active_llm: str) -> str:
 
     model = None
 
-    if active_llm:
-        model = os.environ.get(f"{active_llm.upper()}_MODEL")
-
-    if not model:
-        model = os.environ.get("MODEL")
+    if llm:
+        model = os.environ.get(f"{llm.upper()}_MODEL")
 
     if not model:
         raise ValueError("LLM Model not configured.")

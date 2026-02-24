@@ -106,11 +106,18 @@ async def check_k8s_permission(
         # Send SubjectAccessReview to Kubernetes API
         response = auth_api.create_subject_access_review(sar)
         
-        logging.info(f"Permission check for user {user_id}: {verb} {resource} in {namespace} - Allowed: {response.status.allowed}")
+        logging.info(f"Permission check for user '{user_id}': {verb} {resource} in {namespace}")
+        logging.info(f"  Allowed: {response.status.allowed}")
+        if response.status.reason:
+            logging.info(f"  Reason: {response.status.reason}")
+        if response.status.evaluation_error:
+            logging.info(f"  Error: {response.status.evaluation_error}")
+        
         return response.status.allowed
     
     except ApiException as e:
         logging.error(f"Kubernetes API error during permission check: {e}")
+        logging.error(f"  Status: {e.status}, Reason: {e.reason}")
         return False
     except Exception as e:
         logging.error(f"Error checking Kubernetes permissions: {e}")

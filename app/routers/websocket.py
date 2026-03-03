@@ -116,7 +116,7 @@ async def websocket_endpoint(websocket: WebSocket, thread_id: str = None, llm: B
         except Exception as e:
             logging.error(f"An error occurred: {e}", exc_info=True)
             if websocket.client_state == WebSocketState.CONNECTED:
-                await websocket.send_text(f'<error>{{"message": "{str(e)}"}}</error>')
+                await websocket.send_text(f'<error>{json.dumps({"message": str(e)})}</error>')
             else:
                 break
         finally:

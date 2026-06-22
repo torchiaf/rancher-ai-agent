@@ -48,6 +48,10 @@ async def _try_refresh_oauth_token(agent_name: str, websocket: WebSocket) -> boo
         cookie_names = get_oauth_cookie_names(agent_name)
 
         refresh_token = websocket.cookies.get(cookie_names["refresh_token"])
+
+        # TODO: we need to get this token when running in dev mode
+        # refresh_token = "test"
+        
         if not refresh_token:
             return False
 
@@ -108,7 +112,7 @@ async def _initiate_oauth_flow(agent_name: str, websocket: WebSocket) -> bool:
     rv = await client.create_authorization_url(redirect_uri)
 
     state = rv["state"]
-    session_token = websocket.cookies.get("R_SESS", "")
+    session_token = os.environ.get("RANCHER_API_TOKEN", websocket.cookies.get("R_SESS", "")) 
     oauth_store.set_state(state, {
         "code_verifier": rv.get("code_verifier"),
         "agent_name": agent_name,
@@ -131,7 +135,7 @@ async def _inject_oauth_cookie(agent_name: str, websocket: WebSocket) -> None:
     create_mcp_client can find it via websocket.cookies.get(...).
     """
     cookie_name = get_oauth_cookie_names(agent_name)["access_token"]
-    session_token = websocket.cookies.get("R_SESS", "")
+    session_token = os.environ.get("RANCHER_API_TOKEN", websocket.cookies.get("R_SESS", ""))
     token = oauth_store.pop_token(cookie_name, session_token)
     if token:
         websocket.cookies[cookie_name] = token

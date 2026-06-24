@@ -13,6 +13,182 @@ servers:
     description: Production server
 
 paths:
+  /v1/api/oauth2/callback:
+    get:
+      summary: OAuth callback endpoint
+      description: OAuth provider callback endpoint that exchanges authorization code for access token and stores it as httponly cookies
+      operationId: oauth_callback
+      tags:
+        - OAuth
+      parameters:
+        - name: code
+          in: query
+          description: Authorization code from OAuth provider
+          required: true
+          schema:
+            type: string
+        - name: state
+          in: query
+          description: State parameter for CSRF protection
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: HTML page indicating authentication success
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          description: Invalid state, expired session, or OAuth client not found
+          content:
+            text/html:
+              schema:
+                type: string
+        '500':
+          description: Token exchange failed
+          content:
+            text/html:
+              schema:
+                type: string
+
+  /v1/api/oauth2/refresh:
+    post:
+      summary: Refresh OAuth access token
+      description: Refresh the OAuth2 access token using the refresh token stored in cookies
+      operationId: refresh_oauth_token
+      tags:
+        - OAuth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                agent:
+                  type: string
+                  description: The agent config name requiring OAuth2
+              required:
+                - agent
+              example:
+                agent: "my_agent"
+      responses:
+        '200':
+          description: Token refreshed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "ok"
+        '400':
+          description: Missing agent name or no OAuth client registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: No refresh token available or token refresh failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Agent not found or not using OAuth2
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '502':
+          description: No access token in provider response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/api/oauth2/metadata:
+    get:
+      summary: Discover OAuth metadata
+      description: Discover OAuth metadata for an MCP server URL
+      operationId: oauth_metadata
+      tags:
+        - OAuth
+      parameters:
+        - name: mcp_url
+          in: query
+          description: The MCP server URL to discover OAuth metadata from
+          required: true
+          schema:
+            type: string
+          example: "https://mcp.example.com"
+      responses:
+        '200':
+          description: OAuth metadata discovered successfully or null if discovery fails
+          content:
+            application/json:
+              schema:
+                type: object
+                description: OAuth provider metadata (OpenID Connect Discovery format)
+                example:
+                  authorization_endpoint: "https://provider.example.com/oauth/authorize"
+                  token_endpoint: "https://provider.example.com/oauth/token"
+                  registration_endpoint: "https://provider.example.com/oauth/register"
+        '400':
+          description: Missing mcp_url parameter
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/api/oauth2/dynamic-registration:
+    get:
+      summary: Perform OAuth2 dynamic client registration
+      description: Perform OAuth2 dynamic client registration (RFC 7591) with the authorization server
+      operationId: oauth_dynamic_registration
+      tags:
+        - OAuth
+      parameters:
+        - name: metadata_endpoint
+          in: query
+          description: The OAuth provider metadata endpoint URL
+          required: true
+          schema:
+            type: string
+          example: "https://provider.example.com/.well-known/openid-configuration"
+      responses:
+        '200':
+          description: Client registered successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  client_id:
+                    type: string
+                    description: The registered client ID
+                  client_secret:
+                    type: string
+                    description: The registered client secret
+                required:
+                  - client_id
+                  - client_secret
+        '400':
+          description: Missing metadata_endpoint or dynamic client registration not supported
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '502':
+          description: Registration response did not include client_id or client_secret
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
   /chats:
     get:
       summary: List all chats for the current user
@@ -705,3 +881,5 @@ tags:
     description: UI tools selection and management
   - name: Configuration
     description: LLM and agent configuration management
+  - name: OAuth
+    description: OAuth2 authentication and token management

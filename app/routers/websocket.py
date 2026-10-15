@@ -347,8 +347,8 @@ async def _cancel_waiting_plan(agent: CompiledStateGraph | SupervisorGraph, conf
     await websocket.send_text("<message>")
     await _send_stopped_plan_event(agent, config, websocket)
     await _close_stopped_run(agent, config, force=True)
-    await _record_stopped_in_history(agent, config, "", STOP_REASON_USER)
-    await websocket.send_text(_build_stop_reply(STOP_REASON_USER))
+    await _record_stopped_in_history(agent, config, "", "planning-stop")
+    await websocket.send_text(_build_stop_reply("planning-stop"))
 
     return True
 
@@ -452,7 +452,14 @@ async def _call_agent(
         await _send_stopped_plan_event(agent, config, websocket)
         await _close_stopped_run(agent, config)
         is_user_stop = STOP_TAG in (_parse_websocket_request(message).tags or [])
-        reason = STOP_REASON_USER if is_user_stop else STOP_REASON_NEW_REQUEST
+        if is_user_stop:
+            # If stopping a SupervisorGraph (plan execution), use "planning-stop"
+            if isinstance(agent, SupervisorGraph):
+                reason = "planning-stop"
+            else:
+                reason = STOP_REASON_USER
+        else:
+            reason = STOP_REASON_NEW_REQUEST
         await _record_stopped_in_history(agent, config, "".join(partial_text), reason)
         await websocket.send_text(_build_stop_reply(reason))
 

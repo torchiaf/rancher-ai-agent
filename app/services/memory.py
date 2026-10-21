@@ -12,6 +12,9 @@ from langchain_core.runnables.config import RunnableConfig
 from ..services.agent.loader import DEFAULT_AGENT_NAME
 from ..constants import CONTEXT_PARAMETERS_SUFFIX
 
+# Langfuse integration for token tracking (replaces middleware-based tracking)
+from langfuse import get_client
+
 class StorageType(str, Enum):
     """Enum for different types of memory storage."""
     IN_MEMORY = "in-memory"
@@ -206,63 +209,91 @@ class MemoryManager:
             logging.debug(f"Deleted thread: {thread_id}, user_id: {user_id}")
 
     async def _aggregate_token_usage(self, chat_id: str, user_id: str) -> dict:
-        """Aggregate token usage for a conversation, broken down per source.
+        """Aggregate token usage for a conversation via Langfuse API.
 
-        Sums the ``token_usage`` state channel across the main thread (supervisor)
-        and all child-agent sub-threads (``chat_id::child::<name>``). Entries are
-        bucketed per source: ``ui-tools`` and ``summarization`` get their own
-        buckets; agent-turn entries are bucketed as ``supervisor`` (main thread) or
-        the child agent name (child threads).
+        Queries Langfuse observations (spans/generations) for the trace_id matching
+        chat_id and sums their usage data. Observations are grouped by their `name`
+        field which identifies the source (e.g., "llm_call::supervisor", "llm_call::kubernetes").
 
         Returns grand totals plus a ``byAgent`` breakdown, all camelCase.
+        
+        Raises: No exceptions; returns empty totals if Langfuse is unavailable or
+                returns no data (graceful degradation).
         """
-        fields = ("input_tokens", "output_tokens", "total_tokens", "cache_read", "cache_creation")
-        field_map = {
-            "input_tokens": "inputTokens",
-            "output_tokens": "outputTokens",
-            "total_tokens": "totalTokens",
-            "cache_read": "cacheReadTokens",
-            "cache_creation": "cacheCreationTokens",
-        }
-
         def _empty() -> dict:
-            return {out: 0 for out in field_map.values()}
+            return {
+                "inputTokens": 0,
+                "outputTokens": 0,
+                "totalTokens": 0,
+                "cacheReadTokens": 0,
+                "cacheCreationTokens": 0,
+            }
 
         totals = _empty()
         by_agent: dict[str, dict] = {}
-        child_prefix = f"{chat_id}::child::"
-        seen_threads: set[str] = set()
 
-        async for checkpoint_tuple in self.get_checkpointer().alist(config=None, filter={"user_id": user_id}):
-            thread_id = checkpoint_tuple.config.get("configurable", {}).get("thread_id", "")
+        # Graceful fallback if Langfuse environment is not configured
+        if not os.environ.get("LANGFUSE_SECRET_KEY"):
+            logging.debug("Langfuse not configured (LANGFUSE_SECRET_KEY not set); returning empty token usage")
+            return {**totals, "byAgent": by_agent}
 
-            if thread_id != chat_id and not thread_id.startswith(child_prefix):
-                continue
+        try:
+            langfuse = get_client()
+            
+            # Query observations for this trace/chat with usage data
+            # The Langfuse CallbackHandler automatically records all model calls
+            # as observations with usage_details filled in
+            observations = langfuse.api.observations.get_many(
+                trace_id=chat_id,
+                fields="core,basic,usage",  # Includes inputUsage, outputUsage, totalUsage, costDetails
+                limit=1000,  # Reasonable max for a conversation
+            )
 
-            # alist yields newest first; the first checkpoint per thread carries the
-            # complete (cumulative) token_usage channel.
-            if thread_id in seen_threads:
-                continue
-            seen_threads.add(thread_id)
+            # Process each observation's usage data
+            for obs in (observations.data if hasattr(observations, 'data') else observations or []):
+                # Extract usage from observation
+                # Langfuse returns usage fields when 'usage' field group is requested
+                input_tokens = getattr(obs, 'inputUsage', 0) or 0
+                output_tokens = getattr(obs, 'outputUsage', 0) or 0
+                total_tokens = getattr(obs, 'totalUsage', 0) or 0
 
-            token_usage = checkpoint_tuple.checkpoint.get("channel_values", {}).get("token_usage", {})
-            if not token_usage:
-                continue
+                if not (input_tokens or output_tokens or total_tokens):
+                    continue
 
-            for entry in token_usage.values():
-                source = entry.get("source", "agent")
-                if source in ("ui-tools", "summarization"):
-                    bucket = source
-                elif thread_id == chat_id:
-                    bucket = "supervisor"
-                else:
-                    bucket = thread_id.split("::child::", 1)[1]
+                # Determine bucket: extract agent name from observation name
+                # Observation names typically follow patterns like:
+                # - "Agent" for supervisor/main agent
+                # - Child agent names for delegated tasks
+                # - Special names for tools, etc.
+                bucket = "agent"  # default
+                obs_name = getattr(obs, 'name', '') or ''
+                obs_type = getattr(obs, 'type', '') or ''
 
+                # Try to extract agent/tool name from observation metadata or name
+                if obs_name:
+                    parts = obs_name.split("::")
+                    if len(parts) > 1:
+                        bucket = parts[-1]  # Use last part after split
+                    else:
+                        bucket = obs_name
+                elif obs_type:
+                    bucket = obs_type
+
+                # Accumulate to by_agent bucket
                 agent_totals = by_agent.setdefault(bucket, _empty())
-                for field in fields:
-                    value = entry.get(field, 0) or 0
-                    agent_totals[field_map[field]] += value
-                    totals[field_map[field]] += value
+                agent_totals["inputTokens"] += input_tokens
+                agent_totals["outputTokens"] += output_tokens
+                agent_totals["totalTokens"] += total_tokens
+                totals["totalTokens"] += total_tokens
+                totals["inputTokens"] += input_tokens
+                totals["outputTokens"] += output_tokens
+
+        except Exception as e:
+            logging.warning(
+                f"Failed to fetch token usage from Langfuse for chat_id={chat_id}: {e}. "
+                "Returning zero totals."
+            )
+            # Graceful degradation: return empty totals rather than failing
 
         return {**totals, "byAgent": by_agent}
 

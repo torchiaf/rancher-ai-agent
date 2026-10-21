@@ -28,7 +28,6 @@ from .system_prompts import SUPERVISOR_PROMPT
 from .middleware import (
     INTERRUPT_CANCEL_MESSAGE,
     MessagesHistoryMiddleware,
-    UsageTrackingSummarizationMiddleware,
     cancel_human_validation_middleware,
     inject_additional_kwargs_middleware,
     ui_tools_middleware
@@ -148,7 +147,6 @@ def create_supervisor_agent(
             cancel_human_validation_middleware(),
             inject_additional_kwargs_middleware(),
             ui_tools_middleware(llm),
-            UsageTrackingSummarizationMiddleware(model=llm, trigger=[("messages", 30), ("tokens", 30000)], keep=("messages", 15)),
         ],
     )
 

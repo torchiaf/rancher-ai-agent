@@ -12,7 +12,6 @@ from langgraph.config import get_config
 from langgraph.runtime import Runtime
 
 from ...ui_tools.selector import create_ui_tools_selector
-from .messages_history import merge_usage, usage_entry_from_metadata
 
 
 def ui_tools_middleware(llm: BaseChatModel, only_when_direct: bool = False):
@@ -55,12 +54,6 @@ def ui_tools_middleware(llm: BaseChatModel, only_when_direct: bool = False):
                         for m in history
                     ]
                     result["messages_history"] = updated_history
-
-        # Account for the tokens the selector call spent, even when no tools were
-        # selected (the LLM call still consumed tokens).
-        entry = usage_entry_from_metadata(usage, "ui-tools")
-        if entry and usage_id:
-            result["token_usage"] = merge_usage(state.get("token_usage"), {usage_id: entry})
 
         return result or None
 

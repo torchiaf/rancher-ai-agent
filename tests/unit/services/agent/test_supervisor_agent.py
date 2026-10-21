@@ -113,10 +113,9 @@ def test_create_supervisor_agent_registers_expected_middleware(mock_create_agent
     # Check expected middleware types are present
     middleware_types = [type(m).__name__ for m in middleware]
     assert "MessagesHistoryMiddleware" in middleware_types
-    assert "UsageTrackingSummarizationMiddleware" in middleware_types
 
-    # Decorator-based middleware are plain functions, check count
-    assert len(middleware) == 5
+    # 4 middleware total: MessagesHistory, cancel_human_validation, inject_kwargs, ui_tools
+    assert len(middleware) == 4
 
 
 # ============================================================================

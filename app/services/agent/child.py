@@ -15,7 +15,6 @@ from langgraph.graph.state import Checkpointer, CompiledStateGraph
 from .loader import AgentConfig
 from .middleware import (
     MessagesHistoryMiddleware,
-    UsageTrackingSummarizationMiddleware,
     ui_tools_middleware,
     inject_additional_kwargs_middleware,
     identity_preamble_middleware,
@@ -61,7 +60,6 @@ def create_child_agent(
         cancel_human_validation_middleware(),
         inject_additional_kwargs_middleware(),
         ui_tools_middleware(llm, only_when_direct=True),
-        UsageTrackingSummarizationMiddleware(model=llm, trigger=[("messages", 30), ("tokens", 30000)], keep=("messages", 15)),
     ]
 
     if agent_config.llm_model_enabled and agent_config.llm_model:

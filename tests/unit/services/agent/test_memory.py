@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 from app.services.memory import MemoryManager
 
 @pytest.mark.asyncio
@@ -100,85 +100,67 @@ async def test_delete_chat_does_nothing_if_not_found():
     await manager.delete_chat("chat1", "user1")
     mock_checkpointer.adelete_thread.assert_not_awaited()
 
-def _usage_checkpoint(thread_id, token_usage):
-    tup = MagicMock()
-    tup.config = {"configurable": {"thread_id": thread_id}}
-    tup.checkpoint = {"channel_values": {"token_usage": token_usage}}
-    return tup
-
 
 @pytest.mark.asyncio
-async def test_aggregate_token_usage_buckets_per_source():
-    """Usage is summed across main + child threads into per-source buckets."""
-    main = _usage_checkpoint("chat1", {
-        "m1": {"source": "agent", "input_tokens": 100, "output_tokens": 20,
-               "total_tokens": 120, "cache_read": 10, "cache_creation": 5},
-        "ui1": {"source": "ui-tools", "input_tokens": 8, "output_tokens": 2,
-                "total_tokens": 10, "cache_read": 0, "cache_creation": 0},
-        "sum1": {"source": "summarization", "input_tokens": 40, "output_tokens": 10,
-                 "total_tokens": 50, "cache_read": 0, "cache_creation": 0},
-    })
-    child = _usage_checkpoint("chat1::child::kubernetes", {
-        "c1": {"source": "agent", "input_tokens": 200, "output_tokens": 30,
-               "total_tokens": 230, "cache_read": 15, "cache_creation": 0},
-    })
-    # A different conversation's thread that must be ignored.
-    other = _usage_checkpoint("chat2", {
-        "x1": {"source": "agent", "input_tokens": 999, "output_tokens": 999,
-               "total_tokens": 999, "cache_read": 999, "cache_creation": 999},
-    })
-
-    async def alist_mock(*args, **kwargs):
-        for item in [main, child, other]:
-            yield item
-
-    mock_checkpointer = MagicMock()
-    mock_checkpointer.alist = alist_mock
+async def test_aggregate_token_usage_queries_langfuse_api():
+    """Aggregate token usage queries Langfuse API for observations and sums them."""
+    from unittest.mock import patch
+    
+    # Mock Langfuse observation objects
+    class MockObservation:
+        def __init__(self, name, input_tokens, output_tokens):
+            self.name = name
+            self.inputUsage = input_tokens
+            self.outputUsage = output_tokens
+            self.totalUsage = input_tokens + output_tokens
+            self.type = "generation"
+    
+    mock_observations = [
+        MockObservation("agent", 100, 20),
+        MockObservation("ui-tools", 8, 2),
+        MockObservation("summarization", 40, 10),
+    ]
+    
+    mock_response = MagicMock()
+    mock_response.data = mock_observations
+    
+    mock_langfuse_client = MagicMock()
+    mock_langfuse_client.api.observations.get_many.return_value = mock_response
+    
     manager = MemoryManager()
-    manager.checkpointer = mock_checkpointer
-
-    usage = await manager._aggregate_token_usage("chat1", "user1")
-
-    assert usage["totalTokens"] == 120 + 10 + 50 + 230
-    assert usage["inputTokens"] == 100 + 8 + 40 + 200
-    assert usage["outputTokens"] == 20 + 2 + 10 + 30
-    assert usage["cacheReadTokens"] == 10 + 0 + 0 + 15
-    assert usage["cacheCreationTokens"] == 5
-
+    manager.checkpointer = MagicMock()
+    
+    with patch("app.services.memory.get_client", return_value=mock_langfuse_client):
+        with patch.dict("os.environ", {"LANGFUSE_SECRET_KEY": "test-key"}):
+            usage = await manager._aggregate_token_usage("chat1", "user1")
+    
+    # Verify grand totals
+    assert usage["totalTokens"] == 120 + 10 + 50
+    assert usage["inputTokens"] == 100 + 8 + 40
+    assert usage["outputTokens"] == 20 + 2 + 10
+    
+    # Verify by_agent breakdown
     by_agent = usage["byAgent"]
-    assert set(by_agent) == {"supervisor", "ui-tools", "summarization", "kubernetes"}
-    assert by_agent["supervisor"]["totalTokens"] == 120
+    assert "agent" in by_agent
+    assert by_agent["agent"]["totalTokens"] == 120
     assert by_agent["ui-tools"]["totalTokens"] == 10
     assert by_agent["summarization"]["totalTokens"] == 50
-    assert by_agent["kubernetes"]["totalTokens"] == 230
-    assert by_agent["kubernetes"]["cacheReadTokens"] == 15
 
 
 @pytest.mark.asyncio
-async def test_aggregate_token_usage_dedups_to_latest_checkpoint_per_thread():
-    """alist yields multiple checkpoints per thread; only the first (latest) counts."""
-    latest = _usage_checkpoint("chat1", {
-        "m1": {"source": "agent", "input_tokens": 10, "output_tokens": 0,
-               "total_tokens": 10, "cache_read": 0, "cache_creation": 0},
-    })
-    older = _usage_checkpoint("chat1", {
-        "m0": {"source": "agent", "input_tokens": 5, "output_tokens": 0,
-               "total_tokens": 5, "cache_read": 0, "cache_creation": 0},
-    })
-
-    async def alist_mock(*args, **kwargs):
-        for item in [latest, older]:  # newest first
-            yield item
-
-    mock_checkpointer = MagicMock()
-    mock_checkpointer.alist = alist_mock
+async def test_aggregate_token_usage_returns_empty_when_langfuse_unavailable():
+    """Returns empty totals gracefully when LANGFUSE_SECRET_KEY is not set."""
     manager = MemoryManager()
-    manager.checkpointer = mock_checkpointer
-
-    usage = await manager._aggregate_token_usage("chat1", "user1")
-
-    assert usage["totalTokens"] == 10
-    assert usage["byAgent"]["supervisor"]["totalTokens"] == 10
+    manager.checkpointer = MagicMock()
+    
+    # Don't set LANGFUSE_SECRET_KEY in the environment
+    with patch.dict("os.environ", {}, clear=True):
+        usage = await manager._aggregate_token_usage("chat1", "user1")
+    
+    assert usage["totalTokens"] == 0
+    assert usage["inputTokens"] == 0
+    assert usage["outputTokens"] == 0
+    assert usage["byAgent"] == {}
 
 
 @pytest.mark.asyncio

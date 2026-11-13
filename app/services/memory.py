@@ -1,6 +1,8 @@
 import os
 import re
+import asyncio
 import logging
+import uuid
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import cast
@@ -32,6 +34,10 @@ _CHILD_THREAD_SEPARATORS = ("::child::", "::planner::")
 _USAGE_THREAD_SEPARATOR = "::usage::"
 # Agent credited with the usage of the chat's own thread (supervisor or planner).
 ORCHESTRATOR_AGENT = "supervisor"
+# Per-user thread keeping the usage of deleted chats. Its metadata has `owner_id` instead of
+# `user_id`, so user-scoped reads and deletes never see it; only the admin aggregation does.
+_ARCHIVE_THREAD_PREFIX = "usage-archive::"
+_ARCHIVED_ENTRY_FIELDS = (*_USAGE_FIELDS, "provider", "model", "source", "created_at")
 
 
 def _empty_usage() -> dict:
@@ -91,6 +97,7 @@ class MemoryManager:
         self.db_pool: AsyncConnectionPool | None = None
         self.checkpointer: AsyncPostgresSaver | InMemorySaver | None = None
         self.storage_type: StorageType | None = None
+        self._archive_lock = asyncio.Lock()
 
     async def initialize(self):
         if os.environ.get("DB_ENABLED", "false").lower() == "true":
@@ -258,6 +265,8 @@ class MemoryManager:
         Args:
             user_id: The ID of the user.
         """
+        await self._archive_usage(user_id)
+
         thread_ids = []
         async for checkpoint_tuple in self.get_checkpointer().alist(config=None, filter={"user_id": user_id}):
             thread_id = checkpoint_tuple.config.get('configurable', {}).get('thread_id', '')
@@ -301,10 +310,13 @@ class MemoryManager:
                 continue
             seen.add((thread_id, checkpoint_ns))
 
-            if agent is None and not checkpoint_ns:
+            metadata = checkpoint_tuple.metadata or {}
+            is_archive = thread_id.startswith(_ARCHIVE_THREAD_PREFIX)
+            if agent is None and not checkpoint_ns and not is_archive:
                 chat_names[root_id] = self._get_chat_metadata(checkpoint_tuple).get("name")
 
-            owners.setdefault(thread_id, (checkpoint_tuple.metadata or {}).get("user_id") or "unknown")
+            owner = metadata.get("owner_id") if is_archive else metadata.get("user_id")
+            owners.setdefault(thread_id, owner or "unknown")
             token_usage = checkpoint_tuple.checkpoint.get("channel_values", {}).get("token_usage") or {}
             entries_by_thread.setdefault(thread_id, {}).update(token_usage)
 
@@ -315,6 +327,57 @@ class MemoryManager:
                 agent = thread_agent or entry.get("agent") or ORCHESTRATOR_AGENT
                 records.append((root_id, agent, entry, owners[thread_id]))
         return records, chat_names
+
+    async def _load_archived_usage(self, user_id: str) -> list[tuple]:
+        """The user's archived usage of deleted chats, as ``(None, agent, entry, user_id)`` records."""
+        config = RunnableConfig(configurable={"thread_id": f"{_ARCHIVE_THREAD_PREFIX}{user_id}", "checkpoint_ns": ""})
+        archive = await self.get_checkpointer().aget_tuple(config)
+        if not archive or (archive.metadata or {}).get("owner_id") != user_id:
+            return []
+        entries = archive.checkpoint.get("channel_values", {}).get("token_usage") or {}
+        return [(None, entry.get("agent") or ORCHESTRATOR_AGENT, entry, user_id) for entry in entries.values()]
+
+    async def _archive_usage(self, user_id: str, chat_id: str | None = None) -> None:
+        """
+        Copy the usage of the user's chats (or of one chat) into the user's archive thread,
+        so it survives the deletion of the chats. Only numbers and timestamps are kept.
+
+        Args:
+            user_id: The ID of the user.
+            chat_id: The ID of the chat to archive, or None for all the user's chats.
+        """
+        records, _ = await self._load_token_usage(user_id, chat_id)
+        archived = {
+            uuid.uuid4().hex: {
+                **{field: entry[field] for field in _ARCHIVED_ENTRY_FIELDS if field in entry},
+                "agent": agent,
+            }
+            for _chat_id, agent, entry, _owner in records
+        }
+        if not archived:
+            return
+
+        checkpointer = self.get_checkpointer()
+        config = RunnableConfig(configurable={"thread_id": f"{_ARCHIVE_THREAD_PREFIX}{user_id}", "checkpoint_ns": ""})
+        async with self._archive_lock:
+            current = await checkpointer.aget_tuple(config)
+            token_usage: dict = {}
+            current_version = None
+            if current:
+                token_usage.update(current.checkpoint.get("channel_values", {}).get("token_usage") or {})
+                current_version = current.checkpoint.get("channel_versions", {}).get("token_usage")
+            token_usage.update(archived)
+
+            version = checkpointer.get_next_version(current_version, None)
+            checkpoint = empty_checkpoint()
+            checkpoint["channel_values"] = {"token_usage": token_usage}
+            checkpoint["channel_versions"] = {"token_usage": version}
+            await checkpointer.aput(
+                config=config,
+                checkpoint=checkpoint,
+                metadata=cast(CheckpointMetadata, {"owner_id": user_id, "source": "update", "step": 0, "parents": {}}),
+                new_versions={"token_usage": version},
+            )
 
     async def fetch_chat_usage(self, chat_id: str, user_id: str) -> dict:
         """
@@ -341,10 +404,11 @@ class MemoryManager:
             until: End of the period (timezone-aware).
             chats_limit: Number of chats that consumed the most tokens to return.
         Returns:
-            Token totals broken down by agent, source, model and day (UTC),
-            plus the chats that consumed the most tokens.
+            Token totals broken down by agent, source, model and day (UTC), including
+            the usage of deleted chats, plus the (existing) chats that consumed the most tokens.
         """
         records, chat_names = await self._load_token_usage(user_id)
+        records += await self._load_archived_usage(user_id)
 
         in_period = []
         for chat_id, agent, entry, _user in records:
@@ -361,7 +425,8 @@ class MemoryManager:
         by_chat: dict[str, dict] = {}
         for chat_id, _agent, entry, entry_day in in_period:
             _add_usage(by_day.setdefault(entry_day.isoformat(), _empty_usage()), entry)
-            _add_usage(by_chat.setdefault(chat_id, _empty_usage()), entry)
+            if chat_id is not None:
+                _add_usage(by_chat.setdefault(chat_id, _empty_usage()), entry)
 
         top_chats = sorted(by_chat.items(), key=lambda item: item[1]["totalTokens"], reverse=True)[:chats_limit]
 
@@ -509,6 +574,8 @@ class MemoryManager:
         checkpoint_tuple = await self.get_checkpointer().aget_tuple(config=config)
 
         if checkpoint_tuple and checkpoint_tuple.metadata.get("user_id") == user_id:
+            await self._archive_usage(user_id, chat_id)
+
             thread_ids = {chat_id}
             async for child_tuple in self.get_checkpointer().alist(config=None, filter={"user_id": user_id}):
                 thread_id = child_tuple.config.get("configurable", {}).get("thread_id", "")

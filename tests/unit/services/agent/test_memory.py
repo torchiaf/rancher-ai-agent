@@ -133,7 +133,7 @@ async def test_delete_chat_deletes_child_and_planner_threads():
 
     await manager.delete_chat("chat1", "user1")
 
-    assert seen_filters == [{"user_id": "user1"}]
+    assert seen_filters and all(f == {"user_id": "user1"} for f in seen_filters)
     deleted = {c.args[0] for c in mock_checkpointer.adelete_thread.await_args_list}
     assert deleted == {"chat1", "chat1::child::kubernetes", "chat1::planner::fleet"}
 
@@ -182,6 +182,7 @@ def _usage_manager(*checkpoints):
 
     mock_checkpointer = MagicMock()
     mock_checkpointer.alist = alist_mock
+    mock_checkpointer.aget_tuple = AsyncMock(return_value=None)
     manager = MemoryManager()
     manager.checkpointer = mock_checkpointer
     manager._get_chat_metadata = MagicMock(return_value={"name": "Chat", "created_at": None})
@@ -322,6 +323,58 @@ async def test_record_chat_usage_is_aggregated_with_the_chat():
     manager.get_checkpointer().aget_tuple = AsyncMock(return_value=MagicMock(metadata={"user_id": "user1"}))
     await manager.delete_chat("chat1", "user1")
     assert (await manager.fetch_chat_usage("chat1", "user1"))["llmCalls"] == 0
+
+
+@pytest.mark.asyncio
+async def test_deleted_chats_usage_is_archived():
+    """Deleting chats keeps their usage in a per-user archive: counted in usage totals, never listed as a chat."""
+    import os
+    from datetime import datetime, timezone
+    from unittest.mock import patch
+
+    with patch.dict(os.environ, {"DB_ENABLED": "false"}):
+        manager = MemoryManager()
+        await manager.initialize()
+
+    await manager.record_chat_usage("chat1", "alice", {"a": _entry(10, source="ui-tools")})
+    await manager.record_chat_usage("chat2", "alice", {"b": _entry(20)})
+    await manager.record_chat_usage("chat3", "bob", {"c": _entry(40)})
+
+    real_aget_tuple = manager.get_checkpointer().aget_tuple
+
+    async def aget_tuple(config):
+        if config["configurable"]["thread_id"] == "chat1":
+            return MagicMock(metadata={"user_id": "alice"})
+        return await real_aget_tuple(config)
+
+    manager.get_checkpointer().aget_tuple = aget_tuple
+    await manager.delete_chat("chat1", "alice")
+    await manager.delete_chats("alice")
+
+    # Not a chat anymore...
+    assert (await manager.fetch_chat_usage("chat1", "alice"))["llmCalls"] == 0
+    assert await manager.fetch_chats("alice") == []
+
+    # ...but still counted in the owner's usage...
+    since = datetime(2026, 11, 1, tzinfo=timezone.utc)
+    until = datetime(2026, 12, 1, tzinfo=timezone.utc)
+    analytics = await manager.fetch_usage_analytics("alice", since, until)
+    assert analytics["totalTokens"] == 30 and analytics["llmCalls"] == 2
+    assert {k: v["totalTokens"] for k, v in analytics["bySource"].items()} == {"ui-tools": 10, "agent": 20}
+    assert sum(d["totalTokens"] for d in analytics["byDay"]) == 30
+    assert analytics["chatCount"] == 0 and analytics["topChats"] == []
+    assert (await manager.fetch_usage_analytics("bob", since, until))["totalTokens"] == 40
+
+    # ...and in the admin's, credited to the owner.
+    result = await manager.fetch_usage_by_user(since, until)
+    assert {u: v["totalTokens"] for u, v in result["byUser"].items()} == {"alice": 30, "bob": 40}
+    assert result["byUser"]["alice"]["llmCalls"] == 2
+
+    archive = await real_aget_tuple({"configurable": {"thread_id": "usage-archive::alice", "checkpoint_ns": ""}})
+    assert archive.metadata["owner_id"] == "alice" and "user_id" not in archive.metadata
+    entries = list(archive.checkpoint["channel_values"]["token_usage"].values())
+    assert sorted(e["total_tokens"] for e in entries) == [10, 20]
+    assert all(e["agent"] == "supervisor" and "chat_id" not in e for e in entries)
 
 
 @pytest.mark.asyncio
